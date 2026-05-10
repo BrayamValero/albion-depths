@@ -1,0 +1,84 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #0f0f0f;
+  --surface: #1a1a1a;
+  --surface-hover: #252525;
+  --border: #2a2a2a;
+  --text-primary: #ffffff;
+  --text-secondary: #a0a0a0;
+  --text-muted: #666666;
+  --accent: #e63946;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+@layer components {
+  .container-custom {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+  }
+
+  .card {
+    @apply bg-surface border border-border rounded-lg p-4;
+  }
+
+  .card-hover {
+    @apply hover:bg-surfaceHover transition-colors duration-200;
+  }
+
+  .btn-primary {
+    @apply bg-accent text-white px-4 py-2 rounded-lg font-medium hover:bg-opacity-90 transition-colors;
+  }
+
+  .btn-secondary {
+    @apply bg-surface border border-border text-text-secondary px-4 py-2 rounded-lg font-medium hover:bg-surfaceHover transition-colors;
+  }
+
+  .input {
+    @apply bg-surface border border-border rounded-lg px-4 py-2 text-text-primary placeholder-text-muted focus:outline-none focus:border-accent transition-colors;
+  }
+
+  .link {
+    @apply text-accent hover:underline;
+  }
+}
+
+@layer utilities {
+  .text-tier-iron {
+    color: #8b8b8b;
+  }
+  .text-tier-bronze {
+    color: #cd7f32;
+  }
+  .text-tier-silver {
+    color: #c0c0c0;
+  }
+  .text-tier-gold {
+    color: #ffd700;
+  }
+  .text-tier-crystal {
+    color: #b9f2ff;
+  }
+
+  .bg-tier-iron {
+    background-color: #8b8b8b;
+  }
+  .bg-tier-bronze {
+    background-color: #cd7f32;
+  }
+  .bg-tier-silver {
+    background-color: #c0c0c0;
+  }
+  .bg-tier-gold {
+    background-color: #ffd700;
+  }
+  .bg-tier-crystal {
+    background-color: #b9f2ff;
+  }
+}

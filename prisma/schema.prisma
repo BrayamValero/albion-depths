@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Player {
+  id          String    @id
+  name        String
+  mmr         Int       @default(1000)
+  kills       Int       @default(0)
+  deaths      Int       @default(0)
+  streak      Int       @default(0)
+  lastKillAt  DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  killerKills  Kill[]    @relation("KillerKills")
+  victimDeaths Kill[]   @relation("VictimDeaths")
+  h2hAsKiller HeadToHead[] @relation("H2HKiller")
+  h2hAsVictim HeadToHead[] @relation("H2HVictim")
+
+  @@index([mmr(sort: Desc)])
+}
+
+model Kill {
+  id          Int      @id @default(autoincrement())
+  eventId     String   @unique
+  killerId    String
+  victimId    String
+  mmrChange   Int
+  killTime    DateTime
+  fame        Int
+
+  killer      Player   @relation("KillerKills", fields: [killerId], references: [id])
+  victim      Player   @relation("VictimDeaths", fields: [victimId], references: [id])
+
+  @@index([killerId])
+  @@index([victimId])
+  @@index([killTime(sort: Desc)])
+}
+
+model HeadToHead {
+  id          Int       @id @default(autoincrement())
+  killerId    String
+  victimId    String
+  killCount   Int       @default(0)
+  lastKillAt  DateTime?
+
+  killer      Player    @relation("H2HKiller", fields: [killerId], references: [id])
+  victim      Player    @relation("H2HVictim", fields: [victimId], references: [id])
+
+  @@unique([killerId, victimId])
+  @@index([killerId])
+  @@index([victimId])
+}
+
+model SyncLog {
+  id          Int       @id @default(autoincrement())
+  status      String
+  message     String?
+  killsSynced Int       @default(0)
+  createdAt   DateTime  @default(now())
+}
