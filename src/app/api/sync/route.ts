@@ -6,10 +6,15 @@ import { calculateMMRChange, STARTING_MMR } from '@/lib/mmr'
 export async function POST() {
   try {
     const events = await fetchKillEvents(50, 0)
+    console.log(`Fetched ${events.length} events from Albion API`)
+
+    const validEvents = events.filter(isValidKillEvent)
+    console.log(`Valid events (not self-kill): ${validEvents.length}`)
 
     const depthsEvents = events.filter(
       (event) => isDepthsKill(event) && isValidKillEvent(event)
     )
+    console.log(`Depths-filtered events: ${depthsEvents.length}`)
 
     let syncedCount = 0
 

@@ -37,7 +37,9 @@ export async function getPlayerInfo(playerId: string) {
 }
 
 export function isDepthsKill(event: AlbionKillEvent): boolean {
-  return event.groupMemberCount >= 2 && event.groupMemberCount <= 3
+  // Depths is 2-3 player content, but let's be more permissive for now
+  // Filter: group size 2-5 to catch more events, can refine later
+  return event.groupMemberCount >= 2 && event.groupMemberCount <= 5
 }
 
 export function isValidKillEvent(event: AlbionKillEvent): boolean {
