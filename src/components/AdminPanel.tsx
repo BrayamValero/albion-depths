@@ -15,7 +15,7 @@ interface AdminStats {
 
 export function AdminPanel() {
   const [isResetting, setIsResetting] = useState(false)
-  const [isSyncing, setIsSyncing] = useState(false)
+  const [isResettingAll, setIsResettingAll] = useState(false)
   const [message, setMessage] = useState('')
 
   const { data, mutate } = useSWR<AdminStats>('/api/admin/stats', fetcher)
@@ -43,23 +43,29 @@ export function AdminPanel() {
     }
   }
 
-  const handleSync = async () => {
-    setIsSyncing(true)
+  const handleResetAll = async () => {
+    if (!confirm('Are you sure you want to DELETE ALL DATA? This includes all players, kills, assists, and rankings.')) {
+      return
+    }
+    if (!confirm('FINAL WARNING: This action cannot be undone. All data will be permanently lost.')) {
+      return
+    }
+
+    setIsResettingAll(true)
     setMessage('')
 
     try {
-      const res = await fetch('/api/sync', { method: 'POST' })
-      const data = await res.json()
+      const res = await fetch('/api/admin/reset-all', { method: 'POST' })
       if (res.ok) {
-        setMessage(`Synced ${data.synced} new kills`)
+        setMessage('All data has been wiped successfully!')
         mutate()
       } else {
-        setMessage('Sync failed')
+        setMessage('Failed to reset all data')
       }
     } catch {
-      setMessage('Sync failed')
+      setMessage('Failed to reset all data')
     } finally {
-      setIsSyncing(false)
+      setIsResettingAll(false)
     }
   }
 
@@ -89,18 +95,18 @@ export function AdminPanel() {
 
       <div className="flex gap-4">
         <button
-          onClick={handleSync}
-          disabled={isSyncing}
-          className="btn-primary disabled:opacity-50"
-        >
-          {isSyncing ? 'Syncing...' : 'Sync Now'}
-        </button>
-        <button
           onClick={handleResetSeason}
           disabled={isResetting}
           className="btn-secondary disabled:opacity-50"
         >
           {isResetting ? 'Resetting...' : 'Reset Season'}
+        </button>
+        <button
+          onClick={handleResetAll}
+          disabled={isResettingAll}
+          className="px-4 py-2 rounded-lg text-sm font-medium bg-red-900/50 text-red-400 border border-red-800 hover:bg-red-900 transition-colors disabled:opacity-50"
+        >
+          {isResettingAll ? 'Wiping...' : 'Wipe All Data'}
         </button>
       </div>
 

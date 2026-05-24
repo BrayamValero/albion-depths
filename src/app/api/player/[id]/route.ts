@@ -17,7 +17,7 @@ export async function GET(
       return NextResponse.json({ error: 'Player not found' }, { status: 404 })
     }
 
-    const [recentKills, recentDeaths] = await Promise.all([
+    const [recentKills, recentDeaths, recentAssistEvents] = await Promise.all([
       prisma.kill.findMany({
         where: { killerId: id },
         orderBy: { killTime: 'desc' },
@@ -38,6 +38,19 @@ export async function GET(
           },
         },
       }),
+      prisma.eventParticipant.findMany({
+        where: { playerId: id, role: 'ASSISTER' },
+        orderBy: { kill: { killTime: 'desc' } },
+        take: 10,
+        include: {
+          kill: {
+            include: {
+              killer: { select: { id: true, name: true, mmr: true } },
+              victim: { select: { id: true, name: true, mmr: true } },
+            },
+          },
+        },
+      }),
     ])
 
     return NextResponse.json({
@@ -47,32 +60,51 @@ export async function GET(
       tier: getTier(player.mmr),
       kills: player.kills,
       deaths: player.deaths,
-      kd: player.deaths > 0 ? Number((player.kills / player.deaths).toFixed(2)) : player.kills,
+      assists: player.assists,
+      kd: player.deaths > 0 ? Number(((player.kills + player.assists) / player.deaths).toFixed(2)) : (player.kills + player.assists),
       streak: player.streak,
       peakMMR: player.mmr,
       recentKills: recentKills.map((k) => ({
         id: k.id,
         eventId: k.eventId,
-        victim: {
-          id: k.victim.id,
-          name: k.victim.name,
-          mmr: k.victim.mmr,
-        },
+        role: 'KILL' as const,
+        killer: { id: player.id, name: player.name, mmr: player.mmr, tier: getTier(player.mmr) },
+        victim: { id: k.victim.id, name: k.victim.name, mmr: k.victim.mmr, tier: getTier(k.victim.mmr) },
         mmrChange: k.mmrChange,
         killTime: k.killTime,
         fame: k.fame,
+        killerWeapon: k.killerWeapon,
+        victimWeapon: k.victimWeapon,
+        killerIp: Math.round(k.killerIp ?? 0),
+        victimIp: Math.round(k.victimIp ?? 0),
       })),
       recentDeaths: recentDeaths.map((k) => ({
         id: k.id,
         eventId: k.eventId,
-        killer: {
-          id: k.killer.id,
-          name: k.killer.name,
-          mmr: k.killer.mmr,
-        },
+        role: 'DEATH' as const,
+        killer: { id: k.killer.id, name: k.killer.name, mmr: k.killer.mmr, tier: getTier(k.killer.mmr) },
+        victim: { id: player.id, name: player.name, mmr: player.mmr, tier: getTier(player.mmr) },
         mmrChange: k.mmrChange,
         killTime: k.killTime,
         fame: k.fame,
+        killerWeapon: k.killerWeapon,
+        victimWeapon: k.victimWeapon,
+        killerIp: Math.round(k.killerIp ?? 0),
+        victimIp: Math.round(k.victimIp ?? 0),
+      })),
+      recentAssists: recentAssistEvents.map((p) => ({
+        id: p.kill.id,
+        eventId: p.kill.eventId,
+        role: 'ASSIST' as const,
+        killer: { id: p.kill.killer.id, name: p.kill.killer.name, mmr: p.kill.killer.mmr, tier: getTier(p.kill.killer.mmr) },
+        victim: { id: p.kill.victim.id, name: p.kill.victim.name, mmr: p.kill.victim.mmr, tier: getTier(p.kill.victim.mmr) },
+        mmrChange: p.mmrChange,
+        killTime: p.kill.killTime,
+        fame: p.kill.fame,
+        killerWeapon: p.kill.killerWeapon,
+        victimWeapon: p.kill.victimWeapon,
+        killerIp: Math.round(p.kill.killerIp ?? 0),
+        victimIp: Math.round(p.kill.victimIp ?? 0),
       })),
     })
   } catch (error) {

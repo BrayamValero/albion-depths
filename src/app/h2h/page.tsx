@@ -18,13 +18,9 @@ export default function H2HPage() {
       <div className="space-y-4 mb-8">
         <div>
           <label className="block text-text-muted text-sm mb-2">Player A</label>
-          <SearchBar />
-          <input
-            type="text"
-            value={playerA}
-            onChange={(e) => setPlayerA(e.target.value)}
-            placeholder="Enter player ID or name..."
-            className="input w-full mt-2"
+          <SearchBar
+            onSelect={(p) => setPlayerA(p.id)}
+            placeholder="Search for Player A..."
           />
         </div>
 
@@ -34,12 +30,9 @@ export default function H2HPage() {
 
         <div>
           <label className="block text-text-muted text-sm mb-2">Player B</label>
-          <input
-            type="text"
-            value={playerB}
-            onChange={(e) => setPlayerB(e.target.value)}
-            placeholder="Enter player ID or name..."
-            className="input w-full"
+          <SearchBar
+            onSelect={(p) => setPlayerB(p.id)}
+            placeholder="Search for Player B..."
           />
         </div>
       </div>

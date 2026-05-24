@@ -4,7 +4,9 @@ import useSWR from 'swr'
 import Link from 'next/link'
 import { formatDistanceToNow } from 'date-fns'
 import { TierBadge } from './TierBadge'
-import type { KillEvent, Tier } from '@/lib/types'
+import { WeaponIcon } from './WeaponIcon'
+import { formatSilver, formatFame } from '@/lib/format'
+import type { KillEvent } from '@/lib/types'
 
 const fetcher = (url: string) => fetch(url).then((res) => res.json())
 
@@ -42,26 +44,52 @@ export function KillFeed({ limit = 50 }: KillFeedProps) {
   return (
     <div className="space-y-2">
       {data.data.map((kill) => (
-        <div
+        <Link
           key={kill.id}
+          href={`/kill/${kill.id}`}
           className="card card-hover flex items-center justify-between"
         >
-          <div className="flex items-center gap-4">
-            <Link
-              href={`/player/${kill.killer.id}`}
-              className="font-medium text-accent hover:underline"
-            >
-              {kill.killer.name}
-            </Link>
-            <span className="text-text-muted">vs</span>
-            <Link
-              href={`/player/${kill.victim.id}`}
-              className="font-medium text-text-secondary hover:underline"
-            >
-              {kill.victim.name}
-            </Link>
+          <div className="flex items-center gap-2 flex-wrap min-w-0">
+            <span className="text-xs px-1.5 py-0.5 rounded bg-green-900/50 text-green-400 font-medium shrink-0">
+              KILL
+            </span>
+            <span className="flex items-center gap-1">
+              <WeaponIcon type={kill.killerWeapon} />
+              <Link
+                href={`/player/${kill.killer.id}`}
+                className="font-medium text-accent hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {kill.killer.name}
+              </Link>
+              <TierBadge tier={kill.killer.tier as any} size="sm" />
+              <span className="text-text-muted text-xs">[{kill.killerIp}]</span>
+            </span>
+            <span className="text-text-muted text-sm">vs</span>
+            <span className="flex items-center gap-1">
+              <WeaponIcon type={kill.victimWeapon} />
+              <Link
+                href={`/player/${kill.victim.id}`}
+                className="font-medium text-text-secondary hover:underline"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {kill.victim.name}
+              </Link>
+              <TierBadge tier={kill.victim.tier as any} size="sm" />
+              <span className="text-text-muted text-xs">[{kill.victimIp}]</span>
+            </span>
           </div>
-          <div className="flex items-center gap-4 text-sm">
+          <div className="flex items-center gap-3 text-sm shrink-0">
+            {formatFame(kill.totalFame ?? kill.fame) && (
+              <span className="text-purple-400" title="Fame">
+                {formatFame(kill.totalFame ?? kill.fame)} fame
+              </span>
+            )}
+            {formatSilver(kill.lootSilverValue) && (
+              <span className="text-yellow-500" title="Loot value">
+                {formatSilver(kill.lootSilverValue)}
+              </span>
+            )}
             <span
               className={kill.mmrChange >= 0 ? 'text-green-500' : 'text-red-500'}
             >
@@ -71,7 +99,7 @@ export function KillFeed({ limit = 50 }: KillFeedProps) {
               {formatDistanceToNow(new Date(kill.killTime), { addSuffix: true })}
             </span>
           </div>
-        </div>
+        </Link>
       ))}
     </div>
   )

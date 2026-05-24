@@ -24,11 +24,22 @@ const config: Config = {
           bronze: '#cd7f32',
           silver: '#c0c0c0',
           gold: '#ffd700',
+          platinum: '#e5e4e2',
+          emerald: '#50c878',
           crystal: '#b9f2ff',
         },
       },
     },
   },
+  safelist: [
+    'bg-tier-iron',
+    'bg-tier-bronze',
+    'bg-tier-silver',
+    'bg-tier-gold',
+    'bg-tier-platinum',
+    'bg-tier-emerald',
+    'bg-tier-crystal',
+  ],
   plugins: [],
 }
 export default config

@@ -11,6 +11,8 @@ const tierStyles: Record<Tier, string> = {
   Bronze: 'bg-tier-bronze text-black',
   Silver: 'bg-tier-silver text-black',
   Gold: 'bg-tier-gold text-black',
+  Platinum: 'bg-tier-platinum text-black',
+  Emerald: 'bg-tier-emerald text-black',
   Crystal: 'bg-tier-crystal text-black',
 }
 

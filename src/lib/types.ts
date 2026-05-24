@@ -1,4 +1,4 @@
-export type Tier = 'Iron' | 'Bronze' | 'Silver' | 'Gold' | 'Crystal'
+export type Tier = 'Iron' | 'Bronze' | 'Silver' | 'Gold' | 'Platinum' | 'Emerald' | 'Crystal'
 
 export interface PlayerWithMMR {
   id: string
@@ -7,6 +7,7 @@ export interface PlayerWithMMR {
   tier: Tier
   kills: number
   deaths: number
+  assists: number
   kd: number
   streak: number
   rank: number
@@ -19,15 +20,30 @@ export interface KillEvent {
     id: string
     name: string
     mmr: number
+    tier: string
   }
   victim: {
     id: string
     name: string
     mmr: number
+    tier: string
   }
+  role: 'KILL' | 'ASSIST' | 'DEATH'
   mmrChange: number
   killTime: Date
   fame: number
+  totalFame?: number
+  lootSilverValue?: number | null
+  lootCount?: number
+  killerWeapon?: string
+  victimWeapon?: string
+  killerGuild?: string
+  victimGuild?: string
+  killerAlliance?: string
+  victimAlliance?: string
+  killerIp?: number
+  victimIp?: number
+  groupMemberCount?: number
 }
 
 export interface HeadToHeadStats {
@@ -67,11 +83,13 @@ export interface PlayerResponse {
   tier: Tier
   kills: number
   deaths: number
+  assists: number
   kd: number
   streak: number
   peakMMR: number
   recentKills: KillEvent[]
   recentDeaths: KillEvent[]
+  recentAssists: KillEvent[]
 }
 
 export interface SearchResult {
@@ -79,6 +97,9 @@ export interface SearchResult {
   name: string
   mmr: number
   tier: Tier
+  kills: number
+  assists: number
+  deaths: number
 }
 
 export interface AdminStats {
@@ -87,23 +108,65 @@ export interface AdminStats {
   lastSyncAt: Date | null
 }
 
+export interface AlbionEquipment {
+  Type?: string
+  Count?: number
+  Quality?: number
+  ActiveSpells?: string[]
+  PassiveSpells?: string[]
+  LegendarySoul?: string | null
+}
+
+export interface AlbionPlayerData {
+  Id: string
+  Name: string
+  GuildName?: string
+  GuildId?: string
+  AllianceName?: string
+  AllianceId?: string
+  AllianceTag?: string
+  Avatar?: string
+  AvatarRing?: string
+  AverageItemPower: number
+  KillFame: number
+  DeathFame: number
+  FameRatio: number
+  Equipment: {
+    MainHand?: AlbionEquipment | null
+    OffHand?: AlbionEquipment | null
+    Head?: AlbionEquipment | null
+    Armor?: AlbionEquipment | null
+    Shoes?: AlbionEquipment | null
+    Bag?: AlbionEquipment | null
+    Cape?: AlbionEquipment | null
+    Mount?: AlbionEquipment | null
+    Potion?: AlbionEquipment | null
+    Food?: AlbionEquipment | null
+  }
+  Inventory?: (AlbionEquipment | null)[]
+  LifetimeStatistics?: Record<string, unknown>
+}
+
+export interface AlbionParticipant extends AlbionPlayerData {
+  DamageDone: number
+  SupportHealingDone: number
+}
+
 export interface AlbionKillEvent {
   numberOfParticipants: number
   groupMemberCount: number
   EventId: number
   TimeStamp: string
-  Killer: {
-    Id: string
-    Name: string
-    KillFame: number
-  }
-  Victim: {
-    Id: string
-    Name: string
-    DeathFame: number
-  }
+  Version: number
+  Killer: AlbionPlayerData
+  Victim: AlbionPlayerData
+  TotalVictimKillFame: number
   Location: string | null
-  KillArea: string
+  Participants?: AlbionParticipant[]
+  GroupMembers?: unknown[]
+  GvGMatch?: unknown
+  BattleId?: string
+  KillArea?: string
   Category: string | null
   Type: string
 }

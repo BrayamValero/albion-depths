@@ -3,66 +3,121 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "mysql"
+  url      = env("DATABASE_URL")
 }
 
 model Player {
-  id          String    @id
-  name        String
-  mmr         Int       @default(1000)
-  kills       Int       @default(0)
-  deaths      Int       @default(0)
-  streak      Int       @default(0)
-  lastKillAt  DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String    @id
+  name       String
+  mmr        Int       @default(1000)
+  kills      Int       @default(0)
+  deaths     Int       @default(0)
+  assists    Int       @default(0)
+  streak     Int       @default(0)
+  lastKillAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
 
-  killerKills  Kill[]    @relation("KillerKills")
-  victimDeaths Kill[]   @relation("VictimDeaths")
-  h2hAsKiller HeadToHead[] @relation("H2HKiller")
-  h2hAsVictim HeadToHead[] @relation("H2HVictim")
+  killerKills  Kill[]       @relation("KillerKills")
+  victimDeaths Kill[]       @relation("VictimDeaths")
+  h2hAsKiller  HeadToHead[] @relation("H2HKiller")
+  h2hAsVictim  HeadToHead[] @relation("H2HVictim")
 
-  @@index([mmr(sort: Desc)])
+  eventParticipants EventParticipant[]
+
+  @@index([mmr])
 }
 
 model Kill {
-  id          Int      @id @default(autoincrement())
-  eventId     String   @unique
+  id          Int    @id @default(autoincrement())
+  eventId     String @unique
   killerId    String
   victimId    String
   mmrChange   Int
   killTime    DateTime
   fame        Int
 
-  killer      Player   @relation("KillerKills", fields: [killerId], references: [id])
-  victim      Player   @relation("VictimDeaths", fields: [victimId], references: [id])
+  rawData          String? @db.LongText // Full API response as JSON string
+  killerWeapon     String? // Extracted weapon type for quick queries
+  victimWeapon     String?
+  killerGuild      String?
+  victimGuild      String?
+  killerAlliance   String?
+  victimAlliance   String?
+  killerIp         Float?  // Average Item Power
+  victimIp         Float?
+  totalFame        Int?    // TotalVictimKillFame
+  killArea         String?
+  groupMemberCount Int?
+  killerPartyMmr   Int?
+  killerPartySize  Int?
+  battleId         String?
+  location         String?
+
+  killer Player @relation("KillerKills", fields: [killerId], references: [id])
+  victim Player @relation("VictimDeaths", fields: [victimId], references: [id])
+
+  participants EventParticipant[]
 
   @@index([killerId])
   @@index([victimId])
-  @@index([killTime(sort: Desc)])
+  @@index([killTime])
+  @@index([killerWeapon])
+  @@index([victimWeapon])
 }
 
 model HeadToHead {
-  id          Int       @id @default(autoincrement())
-  killerId    String
-  victimId    String
-  killCount   Int       @default(0)
-  lastKillAt  DateTime?
+  id         Int       @id @default(autoincrement())
+  killerId   String
+  victimId   String
+  killCount  Int       @default(0)
+  lastKillAt DateTime?
 
-  killer      Player    @relation("H2HKiller", fields: [killerId], references: [id])
-  victim      Player    @relation("H2HVictim", fields: [victimId], references: [id])
+  killer Player @relation("H2HKiller", fields: [killerId], references: [id])
+  victim Player @relation("H2HVictim", fields: [victimId], references: [id])
 
   @@unique([killerId, victimId])
   @@index([killerId])
   @@index([victimId])
 }
 
+model EventParticipant {
+  id          Int      @id @default(autoincrement())
+  killId      Int
+  playerId    String
+  role        String   // "KILLER", "VICTIM", or "ASSISTER"
+  mmrChange   Int      @default(0)
+  damageDone  Float    @default(0)
+  healingDone Float    @default(0)
+
+  kill   Kill   @relation(fields: [killId], references: [id])
+  player Player @relation(fields: [playerId], references: [id])
+
+  @@unique([killId, playerId])
+  @@index([killId])
+  @@index([playerId])
+}
+
 model SyncLog {
-  id          Int       @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   status      String
   message     String?
-  killsSynced Int       @default(0)
-  createdAt   DateTime  @default(now())
+  killsSynced Int      @default(0)
+  createdAt   DateTime @default(now())
+}
+
+model SyncState {
+  id          Int      @id @default(autoincrement())
+  lastEventId Int     // Highest EventId successfully synced
+  updatedAt   DateTime @updatedAt
+}
+
+model Season {
+  id        Int      @id @default(autoincrement())
+  number    Int      @unique // Season number (1, 2, 3...)
+  startsAt  DateTime @default(now())
+  endsAt    DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
 }

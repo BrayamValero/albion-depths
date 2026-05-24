@@ -13,6 +13,45 @@ export async function fetchKillEvents(limit: number = 50, offset: number = 0): P
   return response.json()
 }
 
+/**
+ * Fetch events with pagination, returning all events until
+ * we hit an EventId that's already been processed (or reach maxPages).
+ * Individual page timeouts are handled gracefully — we keep
+ * whatever events we already fetched.
+ */
+export async function fetchAllRecentEvents(
+  lastEventId: number,
+  maxPages: number = 8
+): Promise<AlbionKillEvent[]> {
+  const allEvents: AlbionKillEvent[] = []
+  const seenIds = new Set<number>()
+  const limit = 50
+
+  for (let page = 0; page < maxPages; page++) {
+    let events: AlbionKillEvent[]
+    try {
+      events = await fetchKillEvents(limit, page * limit)
+    } catch {
+      break
+    }
+
+    if (events.length === 0) break
+
+    for (const event of events) {
+      if (event.EventId <= lastEventId) {
+        return allEvents
+      }
+      if (seenIds.has(event.EventId)) continue
+      seenIds.add(event.EventId)
+      allEvents.push(event)
+    }
+
+    if (events.length < limit) break
+  }
+
+  return allEvents
+}
+
 export async function searchPlayers(query: string): Promise<{ id: string; name: string }[]> {
   const url = `${API_BASE}/search?q=${encodeURIComponent(query)}`
   const response = await fetch(url)
@@ -37,7 +76,6 @@ export async function getPlayerInfo(playerId: string) {
 }
 
 export function isDepthsKill(event: AlbionKillEvent): boolean {
-  // Depths is strictly 2-3 player content
   return event.groupMemberCount >= 2 && event.groupMemberCount <= 3
 }
 
@@ -49,3 +87,8 @@ export function isValidKillEvent(event: AlbionKillEvent): boolean {
     event.Type === 'KILL'
   )
 }
+
+export function extractWeaponType(equipment: AlbionKillEvent['Killer']['Equipment']): string | null {
+  return equipment?.MainHand?.Type || null
+}
+

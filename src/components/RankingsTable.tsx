@@ -28,6 +28,7 @@ export function RankingsTable({ players }: RankingsTableProps) {
             <th className="text-right py-3 px-4 text-text-muted font-medium">MMR</th>
             <th className="text-right py-3 px-4 text-text-muted font-medium">K/D</th>
             <th className="text-right py-3 px-4 text-text-muted font-medium">Kills</th>
+            <th className="text-right py-3 px-4 text-text-muted font-medium">Assists</th>
             <th className="text-right py-3 px-4 text-text-muted font-medium">Deaths</th>
           </tr>
         </thead>
@@ -60,6 +61,7 @@ export function RankingsTable({ players }: RankingsTableProps) {
               <td className="py-3 px-4 text-right font-mono">{player.mmr}</td>
               <td className="py-3 px-4 text-right">{player.kd}</td>
               <td className="py-3 px-4 text-right text-green-500">{player.kills}</td>
+              <td className="py-3 px-4 text-right text-blue-400">{player.assists}</td>
               <td className="py-3 px-4 text-right text-red-500">{player.deaths}</td>
             </tr>
           ))}

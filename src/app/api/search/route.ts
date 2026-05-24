@@ -23,6 +23,9 @@ export async function GET(request: NextRequest) {
         id: true,
         name: true,
         mmr: true,
+        kills: true,
+        assists: true,
+        deaths: true,
       },
     })
 
@@ -31,6 +34,9 @@ export async function GET(request: NextRequest) {
       name: player.name,
       mmr: player.mmr,
       tier: getTier(player.mmr),
+      kills: player.kills,
+      assists: player.assists,
+      deaths: player.deaths,
     }))
 
     return NextResponse.json({ data })

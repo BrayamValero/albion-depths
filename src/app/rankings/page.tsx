@@ -1,6 +1,6 @@
 import { RankingsTable } from '@/components/RankingsTable'
 import { prisma } from '@/lib/prisma'
-import { getTier } from '@/lib/mmr'
+import { getTier, TIER_THRESHOLDS } from '@/lib/mmr'
 import type { Tier } from '@/lib/types'
 import Link from 'next/link'
 
@@ -19,11 +19,18 @@ export default async function RankingsPage({ searchParams }: Props) {
   const limit = 50
   const tier = params.tier as Tier | undefined
 
+  const tierBounds: Record<string, { gte: number; lt: number }> = {}
+  for (let i = 0; i < TIER_THRESHOLDS.length; i++) {
+    const t = TIER_THRESHOLDS[i]
+    const nextTier = TIER_THRESHOLDS[i - 1]
+    tierBounds[t.tier] = { gte: t.minMMR, lt: nextTier?.minMMR ?? 99999 }
+  }
+
   const where = tier
     ? {
         mmr: {
-          gte: tier === 'Bronze' ? 900 : tier === 'Silver' ? 1200 : tier === 'Gold' ? 1500 : tier === 'Crystal' ? 2000 : 0,
-          lt: tier === 'Iron' ? 900 : tier === 'Bronze' ? 1200 : tier === 'Silver' ? 1500 : tier === 'Gold' ? 2000 : 99999,
+          gte: tierBounds[tier]?.gte ?? 0,
+          lt: tierBounds[tier]?.lt ?? 99999,
         },
       }
     : {}
@@ -45,13 +52,14 @@ export default async function RankingsPage({ searchParams }: Props) {
     tier: getTier(player.mmr),
     kills: player.kills,
     deaths: player.deaths,
-    kd: player.deaths > 0 ? Number((player.kills / player.deaths).toFixed(2)) : player.kills,
+    assists: player.assists,
+    kd: player.deaths > 0 ? Number(((player.kills + player.assists) / player.deaths).toFixed(2)) : (player.kills + player.assists),
     streak: player.streak,
     rank: (page - 1) * limit + index + 1,
   }))
 
   const totalPages = Math.ceil(total / limit)
-  const tiers: (Tier | undefined)[] = [undefined, 'Iron', 'Bronze', 'Silver', 'Gold', 'Crystal']
+  const tiers: (Tier | undefined)[] = [undefined, ...TIER_THRESHOLDS.map((t) => t.tier).reverse()]
 
   return (
     <div>

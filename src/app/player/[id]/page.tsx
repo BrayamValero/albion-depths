@@ -1,9 +1,8 @@
 import { notFound } from 'next/navigation'
-import Link from 'next/link'
 import { prisma } from '@/lib/prisma'
 import { getTier } from '@/lib/mmr'
-import { formatDistanceToNow } from 'date-fns'
 import { TierBadge } from '@/components/TierBadge'
+import { ActivityTimeline } from '@/components/ActivityTimeline'
 
 export const metadata = {
   title: 'Player Profile - Albion Depths Killboard',
@@ -24,7 +23,7 @@ export default async function PlayerPage({ params }: Props) {
     notFound()
   }
 
-  const [recentKills, recentDeaths] = await Promise.all([
+  const [recentKills, recentDeaths, recentAssists] = await Promise.all([
     prisma.kill.findMany({
       where: { killerId: id },
       orderBy: { killTime: 'desc' },
@@ -41,10 +40,93 @@ export default async function PlayerPage({ params }: Props) {
         killer: { select: { id: true, name: true, mmr: true } },
       },
     }),
+    prisma.eventParticipant.findMany({
+      where: { playerId: id, role: 'ASSISTER' },
+      orderBy: { kill: { killTime: 'desc' } },
+      take: 10,
+      include: {
+        kill: {
+          include: {
+            killer: { select: { id: true, name: true, mmr: true } },
+            victim: { select: { id: true, name: true, mmr: true } },
+          },
+        },
+      },
+    }),
   ])
 
+  type TimelineEntry = {
+    id: number
+    killId: number
+    role: 'KILL' | 'DEATH' | 'ASSIST'
+    subjectName: string
+    subjectId: string
+    otherName: string
+    otherId: string
+    mmrChange: number
+    killTime: Date
+    killerWeapon?: string | null
+    victimWeapon?: string | null
+    killerIp: number
+    victimIp: number
+  }
+
+  const kills: TimelineEntry[] = recentKills.map((k) => ({
+    id: k.id,
+    killId: k.id,
+    role: 'KILL' as const,
+    subjectName: k.victim.name,
+    subjectId: k.victim.id,
+    otherName: player.name,
+    otherId: player.id,
+    mmrChange: k.mmrChange,
+    killTime: k.killTime,
+    killerWeapon: k.killerWeapon,
+    victimWeapon: k.victimWeapon,
+    killerIp: Math.round(k.killerIp ?? 0),
+    victimIp: Math.round(k.victimIp ?? 0),
+  }))
+
+  const deaths: TimelineEntry[] = recentDeaths.map((k) => ({
+    id: k.id,
+    killId: k.id,
+    role: 'DEATH' as const,
+    subjectName: k.killer.name,
+    subjectId: k.killer.id,
+    otherName: player.name,
+    otherId: player.id,
+    mmrChange: k.mmrChange,
+    killTime: k.killTime,
+    killerWeapon: k.killerWeapon,
+    victimWeapon: k.victimWeapon,
+    killerIp: Math.round(k.killerIp ?? 0),
+    victimIp: Math.round(k.victimIp ?? 0),
+  }))
+
+  const assists: TimelineEntry[] = recentAssists.map((p) => ({
+    id: p.kill.id,
+    killId: p.kill.id,
+    role: 'ASSIST' as const,
+    subjectName: p.kill.victim.name,
+    subjectId: p.kill.victim.id,
+    otherName: p.kill.killer.name,
+    otherId: p.kill.killer.id,
+    mmrChange: p.mmrChange,
+    killTime: p.kill.killTime,
+    killerWeapon: p.kill.killerWeapon,
+    victimWeapon: p.kill.victimWeapon,
+    killerIp: Math.round(p.kill.killerIp ?? 0),
+    victimIp: Math.round(p.kill.victimIp ?? 0),
+  }))
+
+  const timeline = [...kills, ...deaths, ...assists].sort(
+    (a, b) => new Date(b.killTime).getTime() - new Date(a.killTime).getTime()
+  )
+
   const tier = getTier(player.mmr)
-  const kd = player.deaths > 0 ? Number((player.kills / player.deaths).toFixed(2)) : player.kills
+  const rank = await prisma.player.count({ where: { mmr: { gt: player.mmr } } })
+  const totalScore = player.kills + player.assists
+  const kd = player.deaths > 0 ? Number((totalScore / player.deaths).toFixed(2)) : totalScore
 
   return (
     <div className="space-y-8">
@@ -54,21 +136,28 @@ export default async function PlayerPage({ params }: Props) {
             <h1 className="text-3xl font-bold">{player.name}</h1>
             <p className="text-text-muted mt-1">Player Profile</p>
           </div>
-          <TierBadge tier={tier} size="lg" />
+          <div className="flex items-center gap-3">
+            <TierBadge tier={tier} size="lg" />
+            <span className="text-text-muted text-sm">#{rank + 1}</span>
+          </div>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-6">
           <div>
             <div className="text-text-muted text-sm">MMR</div>
             <div className="text-2xl font-bold">{player.mmr}</div>
           </div>
           <div>
-            <div className="text-text-muted text-sm">K/D</div>
+            <div className="text-text-muted text-sm">K+A/D</div>
             <div className="text-2xl font-bold">{kd}</div>
           </div>
           <div>
             <div className="text-text-muted text-sm">Kills</div>
             <div className="text-2xl font-bold text-green-500">{player.kills}</div>
+          </div>
+          <div>
+            <div className="text-text-muted text-sm">Assists</div>
+            <div className="text-2xl font-bold text-blue-400">{player.assists}</div>
           </div>
           <div>
             <div className="text-text-muted text-sm">Deaths</div>
@@ -84,59 +173,7 @@ export default async function PlayerPage({ params }: Props) {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div>
-          <h2 className="text-xl font-semibold mb-4">Recent Kills</h2>
-          {recentKills.length > 0 ? (
-            <div className="space-y-2">
-              {recentKills.map((kill) => (
-                <div key={kill.id} className="card card-hover flex items-center justify-between">
-                  <Link
-                    href={`/player/${kill.victim.id}`}
-                    className="text-text-secondary hover:text-accent"
-                  >
-                    {kill.victim.name}
-                  </Link>
-                  <div className="text-right">
-                    <span className="text-green-500">+{kill.mmrChange} MMR</span>
-                    <div className="text-text-muted text-xs">
-                      {formatDistanceToNow(new Date(kill.killTime), { addSuffix: true })}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-text-muted">No kills recorded yet</div>
-          )}
-        </div>
-
-        <div>
-          <h2 className="text-xl font-semibold mb-4">Recent Deaths</h2>
-          {recentDeaths.length > 0 ? (
-            <div className="space-y-2">
-              {recentDeaths.map((death) => (
-                <div key={death.id} className="card card-hover flex items-center justify-between">
-                  <Link
-                    href={`/player/${death.killer.id}`}
-                    className="text-text-secondary hover:text-accent"
-                  >
-                    {death.killer.name}
-                  </Link>
-                  <div className="text-right">
-                    <span className="text-red-500">{death.mmrChange} MMR</span>
-                    <div className="text-text-muted text-xs">
-                      {formatDistanceToNow(new Date(death.killTime), { addSuffix: true })}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="text-text-muted">No deaths recorded yet</div>
-          )}
-        </div>
-      </div>
+      <ActivityTimeline timeline={timeline} playerName={player.name} />
     </div>
   )
 }

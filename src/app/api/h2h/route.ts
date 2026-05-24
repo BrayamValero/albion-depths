@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { getTier } from '@/lib/mmr'
 
 export async function GET(request: NextRequest) {
   try {
@@ -12,8 +13,8 @@ export async function GET(request: NextRequest) {
     }
 
     const [playerAData, playerBData, h2hAB, h2hBA] = await Promise.all([
-      prisma.player.findUnique({ where: { id: playerA }, select: { id: true, name: true } }),
-      prisma.player.findUnique({ where: { id: playerB }, select: { id: true, name: true } }),
+      prisma.player.findUnique({ where: { id: playerA } }),
+      prisma.player.findUnique({ where: { id: playerB } }),
       prisma.headToHead.findUnique({
         where: { killerId_victimId: { killerId: playerA, victimId: playerB } },
       }),
@@ -31,8 +32,14 @@ export async function GET(request: NextRequest) {
       playerB: playerBData.name,
       playerAId: playerAData.id,
       playerBId: playerBData.id,
+      playerAMmr: playerAData.mmr,
+      playerBMmr: playerBData.mmr,
+      playerATier: getTier(playerAData.mmr),
+      playerBTier: getTier(playerBData.mmr),
       playerAKills: h2hAB?.killCount || 0,
       playerBKills: h2hBA?.killCount || 0,
+      playerADeaths: h2hBA?.killCount || 0,
+      playerBDeaths: h2hAB?.killCount || 0,
       lastInteraction: h2hAB?.lastKillAt || h2hBA?.lastKillAt || null,
     })
   } catch (error) {
