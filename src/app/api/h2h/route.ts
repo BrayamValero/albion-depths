@@ -12,7 +12,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Missing playerA or playerB parameter' }, { status: 400 })
     }
 
-    const [playerAData, playerBData, h2hAB, h2hBA] = await Promise.all([
+    const [playerAData, playerBData, h2hAB, h2hBA, assistsAB, assistsBA] = await Promise.all([
       prisma.player.findUnique({ where: { id: playerA } }),
       prisma.player.findUnique({ where: { id: playerB } }),
       prisma.headToHead.findUnique({
@@ -21,11 +21,20 @@ export async function GET(request: NextRequest) {
       prisma.headToHead.findUnique({
         where: { killerId_victimId: { killerId: playerB, victimId: playerA } },
       }),
+      prisma.eventParticipant.count({
+        where: { playerId: playerA, role: 'ASSISTER', kill: { victimId: playerB } },
+      }),
+      prisma.eventParticipant.count({
+        where: { playerId: playerB, role: 'ASSISTER', kill: { victimId: playerA } },
+      }),
     ])
 
     if (!playerAData || !playerBData) {
       return NextResponse.json({ error: 'One or both players not found' }, { status: 404 })
     }
+
+    const pAKills = (h2hAB?.killCount || 0) + assistsAB
+    const pBKills = (h2hBA?.killCount || 0) + assistsBA
 
     return NextResponse.json({
       playerA: playerAData.name,
@@ -36,8 +45,8 @@ export async function GET(request: NextRequest) {
       playerBMmr: playerBData.mmr,
       playerATier: getTier(playerAData.mmr),
       playerBTier: getTier(playerBData.mmr),
-      playerAKills: h2hAB?.killCount || 0,
-      playerBKills: h2hBA?.killCount || 0,
+      playerAKills: pAKills,
+      playerBKills: pBKills,
       playerADeaths: h2hBA?.killCount || 0,
       playerBDeaths: h2hAB?.killCount || 0,
       lastInteraction: h2hAB?.lastKillAt || h2hBA?.lastKillAt || null,

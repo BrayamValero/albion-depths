@@ -1,275 +1,597 @@
-'use client'
-
-import useSWR from 'swr'
-import Link from 'next/link'
-import { formatDistanceToNow } from 'date-fns'
-import { TierBadge } from '@/components/TierBadge'
-import { formatSilver, formatFame } from '@/lib/format'
-
-const fetcher = (url: string) => fetch(url).then((res) => res.json())
-const RENDER_BASE = 'https://render.albiononline.com/v1/item'
+import Link from "next/link";
+import { formatDistanceToNow } from "date-fns";
+import { notFound } from "next/navigation";
+import { prisma } from "@/lib/prisma";
+import { getTier } from "@/lib/mmr";
+import { TierBadge } from "@/components/TierBadge";
+import { ItemIcon } from "@/components/ItemIcon";
+import { formatSilver, formatFame } from "@/lib/format";
+import { getPrices, calcValue, allEquipItems } from "@/lib/pricing";
 
 const EQUIP_LABELS: Record<string, string> = {
-  MainHand: 'Main Hand',
-  OffHand: 'Off Hand',
-  Head: 'Head',
-  Armor: 'Chest',
-  Shoes: 'Shoes',
-  Bag: 'Bag',
-  Cape: 'Cape',
-  Mount: 'Mount',
-  Potion: 'Potion',
-  Food: 'Food',
+  MainHand: "Weapon",
+  OffHand: "Offhand",
+  Head: "Head",
+  Armor: "Chest",
+  Shoes: "Boots",
+  Bag: "Bag",
+  Cape: "Cape",
+  Mount: "Mount",
+  Potion: "Potion",
+  Food: "Food",
+};
+
+const EQUIP_ORDER = [
+  "MainHand",
+  "OffHand",
+  "Head",
+  "Armor",
+  "Shoes",
+  "Bag",
+  "Cape",
+  "Mount",
+  "Potion",
+  "Food",
+];
+
+const EQUIP_ROWS: string[][] = [
+  ["Bag", "Head", "Cape"],
+  ["MainHand", "Armor", "OffHand"],
+  ["Potion", "Shoes", "Food"],
+];
+
+const DAMAGE_COLORS = [
+  "#ff4d5a",
+  "#3b82f6",
+  "#22c55e",
+  "#eab308",
+  "#a855f7",
+  "#06b6d4",
+  "#f97316",
+  "#ec4899",
+  "#14b8a6",
+  "#8b5cf6",
+];
+
+const HEALING_COLORS = [
+  "#22c55e",
+  "#14b8a6",
+  "#06b6d4",
+  "#10b981",
+  "#34d399",
+  "#2dd4bf",
+  "#22d3ee",
+  "#4ade80",
+  "#2ecc71",
+  "#1abc9c",
+];
+
+interface Props {
+  params: Promise<{ id: string }>;
 }
 
-const EQUIP_ORDER = ['MainHand', 'OffHand', 'Head', 'Armor', 'Shoes', 'Bag', 'Cape', 'Mount', 'Potion', 'Food']
+export default async function KillPage({ params }: Props) {
+  const { id } = await params;
 
-function ItemIcon({ type, size = 48, quality }: { type?: string | null; size?: number; quality?: number }) {
-  if (!type) return null
-  return (
-    <img
-      src={`${RENDER_BASE}/${type}.png?size=${size}${quality && quality > 1 ? `&quality=${quality}` : ''}`}
-      alt={type}
-      className="inline-block"
-      style={{ width: size, height: size }}
-      onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-    />
-  )
-}
+  const kill = await prisma.kill.findUnique({
+    where: { id: parseInt(id) },
+    include: {
+      killer: { select: { id: true, name: true, mmr: true } },
+      victim: { select: { id: true, name: true, mmr: true } },
+      participants: {
+        include: {
+          player: { select: { id: true, name: true, mmr: true } },
+        },
+      },
+      equipment: true,
+      inventory: true,
+    },
+  });
 
-interface KillDetail {
-  id: number
-  eventId: string
-  killTime: string
-  fame: number
-  totalFame: number | null
-  mmrChange: number
-  killer: { id: string; name: string; mmr: number; tier: string; guild?: string; alliance?: string; ip: number }
-  victim: { id: string; name: string; mmr: number; tier: string; guild?: string; alliance?: string; ip: number }
-  killerWeapon: string | null
-  victimWeapon: string | null
-  killerEquipment: Record<string, { Type: string; Count?: number; Quality?: number } | null>
-  killerGearValue: number
-  victimEquipment: Record<string, { Type: string; Count?: number; Quality?: number } | null>
-  victimGearValue: number
-  victimInventory: { Type: string; Count: number; Quality: number }[]
-  lootTotalCount: number
-  lootSilverValue: number | null
-  participants: { id: string; name: string; mmr: number; tier: string; role: string; mmrChange: number; damageDone: number; healingDone: number; ip: number; equipment: Record<string, { Type: string; Count?: number; Quality?: number } | null> }[]
-  groupMemberCount: number | null
-  killerPartyMmr: number | null
-  killerPartySize: number | null
-  killerPartyMembers: { id: string; name: string; mmr: number; tier: string }[]
-  location: string | null
-  killArea: string | null
-  battleId: string | null
-}
+  if (!kill) notFound();
 
-export default function KillPage({ params }: { params: { id: string } }) {
-  const { id } = params
-  const { data, error, isLoading } = useSWR<KillDetail>(`/api/kill/${id}`, fetcher)
-
-  if (isLoading) {
-    return <div className="text-center py-8 text-text-muted">Loading kill details...</div>
+  const equipByOwner = new Map<
+    string,
+    Record<string, { Type: string; Count: number; Quality: number } | null>
+  >();
+  for (const eq of kill.equipment) {
+    if (!equipByOwner.has(eq.owner)) equipByOwner.set(eq.owner, {});
+    equipByOwner.get(eq.owner)![eq.slot] = {
+      Type: eq.itemType,
+      Count: eq.count,
+      Quality: eq.quality,
+    };
   }
 
-  if (error || !data) {
-    return <div className="text-center py-8 text-red-500">Failed to load kill details</div>
-  }
+  const buildEquipment = (ownerId: string) => equipByOwner.get(ownerId) ?? {};
+  const killerEquip = buildEquipment(kill.killerId);
+  const victimEquip = buildEquipment(kill.victimId);
 
-  const killerParticipant = data.participants.find((p) => p.role === 'KILLER')
-  const victimParticipant = data.participants.find((p) => p.role === 'VICTIM')
+  const victimInventory = kill.inventory.map((i) => ({
+    Type: i.itemType,
+    Count: i.count,
+    Quality: i.quality,
+  }));
+
+  const priceItems = [
+    ...victimInventory.map((i) => ({ Type: i.Type, Quality: i.Quality })),
+    ...allEquipItems(killerEquip),
+    ...allEquipItems(victimEquip),
+  ];
+  const priceMap = await getPrices(priceItems);
+
+  const lootSilverValue = kill.lootSilverValue ?? (() => {
+    const v = Math.round(calcValue(victimInventory, priceMap));
+    return v > 0 ? v : null;
+  })();
+
+  const killerGearValue = Math.round(
+    calcValue(
+      allEquipItems(killerEquip).map((e) => ({ ...e, Count: 1 })),
+      priceMap,
+    ),
+  );
+  const victimGearValue = Math.round(
+    calcValue(
+      allEquipItems(victimEquip).map((e) => ({ ...e, Count: 1 })),
+      priceMap,
+    ),
+  );
+
+  const killerParticipant = kill.participants.find((p) => p.role === "KILLER");
+  const victimParticipant = kill.participants.find((p) => p.role === "VICTIM");
 
   return (
     <div className="max-w-4xl mx-auto space-y-6">
       <div className="card">
-          <div className="flex items-center justify-between mb-2">
+        <span className="absolute top-0 left-4 text-[9px] tracking-wider px-2 py-0.5 rounded-b bg-green-900/70 text-green-400 font-extrabold uppercase border-x border-b border-green-700/50 shadow-md z-20 select-none">
+          KILL
+        </span>
+
+        <div className="flex items-center justify-between mb-2">
           <div className="flex items-center gap-3">
-            <Link href={`/player/${data.killer.id}`} className="flex items-center gap-2 hover:underline">
-              <ItemIcon type={data.killerWeapon} size={32} />
-              <div>
-                <span className="text-xl font-bold text-accent">{data.killer.name}</span>
-                <span className="text-text-muted text-xs ml-1">[{data.killer.ip}]</span>
-                {killerParticipant && killerParticipant.damageDone > 0 && (
-                  <div className="text-xs text-text-muted">{killerParticipant.damageDone.toLocaleString()} dmg</div>
-                )}
+            <ItemIcon type={kill.killerWeapon} size={48} />
+            <div className="flex flex-col gap-2">
+              <Link
+                href={`/player/${kill.killer.id}`}
+                className="font-bold hover:underline "
+              >
+                {kill.killer.name}
+              </Link>
+              <div className="flex items-center gap-2">
+                {/* Tier */}
+                {(() => {
+                  const tier = getTier(kill.killer.mmr);
+                  return <TierBadge tier={tier} size="sm" />;
+                })()}
+                <span className="w-1 h-1 rounded-full bg-border/80"></span>
+                <span className="text-text-secondary/80 font-medium text-xs">
+                  {Math.round(kill.killerIp ?? 0)} IP
+                </span>
               </div>
-            </Link>
-            <TierBadge tier={data.killer.tier as any} size="sm" />
-            <span className="text-text-muted text-sm">({data.killer.mmr} MMR)</span>
+              <div className="text-text-muted text-xs">
+                {kill.killer.mmr} MMR{" "}
+                <span className="text-green-500">
+                  (
+                  {killerParticipant && killerParticipant.mmrChange >= 0
+                    ? "+"
+                    : ""}
+                  {killerParticipant?.mmrChange})
+                </span>
+              </div>
+            </div>
           </div>
-          <span className="text-text-muted text-lg font-medium px-4">VS</span>
+          <div className="relative w-10 h-10 flex items-center justify-center flex-shrink-0">
+            <svg
+              viewBox="0 0 24 24"
+              className="w-8 h-8 text-text-muted/50"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+            >
+              <g transform="rotate(45 12 12)">
+                <path
+                  d="M12 3v13"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                ></path>
+                <path
+                  d="M9 14h6"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                ></path>
+                <path
+                  d="M12 16v3"
+                  stroke="#bfa15f"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                ></path>
+                <circle cx="12" cy="20" r="0.75" fill="#bfa15f"></circle>
+              </g>
+              <g transform="rotate(-45 12 12)">
+                <path
+                  d="M12 3v13"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                ></path>
+                <path
+                  d="M9 14h6"
+                  stroke="currentColor"
+                  stroke-width="1.5"
+                  stroke-linecap="round"
+                ></path>
+                <path
+                  d="M12 16v3"
+                  stroke="#bfa15f"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                ></path>
+                <circle cx="12" cy="20" r="0.75" fill="#bfa15f"></circle>
+              </g>
+            </svg>
+            <span className="absolute text-[7px] font-extrabold tracking-wider bg-[#0a0707] border border-border/80 rounded px-1 py-0.5 text-text-secondary select-none shadow-md">
+              VS
+            </span>
+          </div>
           <div className="flex items-center gap-3">
-            <Link href={`/player/${data.victim.id}`} className="flex items-center gap-2 hover:underline">
-              <div className="text-right">
-                <span className="text-xl font-bold text-text-secondary">{data.victim.name}</span>
-                <span className="text-text-muted text-xs ml-1">[{data.victim.ip}]</span>
+            <ItemIcon type={kill.victimWeapon} size={48} />
+            <div className="flex flex-col gap-2">
+              <Link
+                href={`/player/${kill.victim.id}`}
+                className="font-bold hover:underline "
+              >
+                {kill.victim.name}
+              </Link>
+
+              <div className="flex items-center gap-2">
+                {(() => {
+                  const tier = getTier(kill.victim.mmr);
+                  return <TierBadge tier={tier} size="sm" />;
+                })()}
+                <span className="w-1 h-1 rounded-full bg-border/80"></span>
+                <span className="text-text-secondary/80 font-medium text-xs">
+                  {Math.round(kill.victimIp ?? 0)} IP
+                </span>
+
                 {victimParticipant && victimParticipant.damageDone > 0 && (
-                  <div className="text-xs text-text-muted">{victimParticipant.damageDone.toLocaleString()} dmg</div>
+                  <div className="text-xs text-text-muted">
+                    {victimParticipant.damageDone.toLocaleString()} dmg
+                  </div>
                 )}
               </div>
-              <ItemIcon type={data.victimWeapon} size={32} />
-            </Link>
-            <TierBadge tier={data.victim.tier as any} size="sm" />
-            <span className="text-text-muted text-sm">({data.victim.mmr} MMR)</span>
+              <span className="text-text-muted text-xs">
+                {kill.victim.mmr} MMR{" "}
+                <span className="text-red-500">
+                  (
+                  {victimParticipant && victimParticipant.mmrChange >= 0
+                    ? "+"
+                    : ""}
+                  {victimParticipant?.mmrChange})
+                </span>
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between text-sm text-text-muted mt-4 pt-4 border-t border-border">
-          <div className="flex gap-6">
-            {data.killer.guild && <span>Guild: {data.killer.guild}</span>}
-            {data.location && <span>Location: {data.location}</span>}
-            {data.killerPartySize && data.killerPartySize > 1 ? (
-              <span>Party of {data.killerPartySize} (Avg {data.killerPartyMmr} MMR)</span>
-            ) : null}
-          </div>
+        <div className="flex items-center justify-between text-sm text-text-muted mt-4 pt-4 border-t border-border -mx-5 px-5">
           <div className="flex items-center gap-4">
-            <span className={data.mmrChange >= 0 ? 'text-green-500' : 'text-red-500'}>
-              {data.mmrChange >= 0 ? '+' : ''}{data.mmrChange} MMR
-            </span>
-            <div>{formatDistanceToNow(new Date(data.killTime), { addSuffix: true })}</div>
+            <div>
+              {formatDistanceToNow(new Date(kill.killTime), {
+                addSuffix: true,
+              })}
+            </div>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="card">
-          <h3 className="text-lg font-semibold mb-4 text-accent">{data.killer.name}&apos;s Equipment</h3>
-          <div className="grid grid-cols-5 gap-3">
-            {EQUIP_ORDER.map((slot) => {
-              const item = data.killerEquipment[slot]
-              if (!item) return null
-              return (
-                <div key={slot} className="flex flex-col items-center gap-1">
-                  <div className="bg-surface border border-border rounded-lg p-2">
-                    <ItemIcon type={item.Type} size={40} quality={item.Quality} />
-                  </div>
-                  <span className="text-xs text-text-muted text-center leading-tight">{EQUIP_LABELS[slot]}</span>
-                </div>
-              )
-            })}
-          </div>
-          {formatSilver(data.killerGearValue) && (
+          <h3 className="text-lg font-semibold mb-4 text-accent">
+            {kill.killer.name}&apos;s Equipment
+          </h3>
+          <EquipmentGrid equip={killerEquip} />
+          {formatSilver(killerGearValue) && (
             <div className="mt-3 text-xs text-text-muted text-right">
-              Gear value: <span className="text-yellow-500">{formatSilver(data.killerGearValue)}</span>
+              Gear value:{" "}
+              <span className="text-yellow-500">
+                {formatSilver(killerGearValue)}
+              </span>
             </div>
           )}
         </div>
 
         <div className="card">
-          <h3 className="text-lg font-semibold mb-4 text-red-400">{data.victim.name}&apos;s Equipment</h3>
-          <div className="grid grid-cols-5 gap-3">
-            {EQUIP_ORDER.map((slot) => {
-              const item = data.victimEquipment[slot]
-              if (!item) return null
-              return (
-                <div key={slot} className="flex flex-col items-center gap-1">
-                  <div className="bg-surface border border-border rounded-lg p-2">
-                    <ItemIcon type={item.Type} size={40} quality={item.Quality} />
-                  </div>
-                  <span className="text-xs text-text-muted text-center leading-tight">{EQUIP_LABELS[slot]}</span>
-                </div>
-              )
-            })}
-          </div>
-          {formatSilver(data.victimGearValue) && (
+          <h3 className="text-lg font-semibold mb-4 text-red-400">
+            {kill.victim.name}&apos;s Equipment
+          </h3>
+          <EquipmentGrid equip={victimEquip} />
+          {formatSilver(victimGearValue) && (
             <div className="mt-3 text-xs text-text-muted text-right">
-              Gear value: <span className="text-yellow-500">{formatSilver(data.victimGearValue)}</span>
+              Gear value:{" "}
+              <span className="text-yellow-500">
+                {formatSilver(victimGearValue)}
+              </span>
             </div>
           )}
         </div>
       </div>
 
-      {data.killerPartyMembers && data.killerPartyMembers.length > 1 && (
-        <div className="card">
-          <h3 className="text-lg font-semibold mb-4">Killer&apos;s Party</h3>
-          <div className="space-y-2">
-            {data.killerPartyMembers.map((m) => (
-              <div key={m.id} className="flex items-center gap-3">
-                <Link href={`/player/${m.id}`} className="font-medium text-accent hover:underline">{m.name}</Link>
-                <TierBadge tier={m.tier as any} size="sm" />
-                <span className="text-text-muted text-sm">{m.mmr} MMR</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {data.victimInventory.length > 0 && (
+      {victimInventory.length > 0 && (
         <div className="card">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-lg font-semibold">Loot Dropped</h3>
             <div className="flex items-center gap-3">
-              <span className="text-yellow-500 font-medium">{data.lootTotalCount} items</span>
+              <span className="text-yellow-500 font-medium">
+                {victimInventory.length} items
+              </span>
             </div>
           </div>
           <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-3">
-            {data.victimInventory.map((item, i) => (
+            {victimInventory.map((item, i) => (
               <div key={i} className="flex flex-col items-center gap-1">
                 <div className="bg-surface border border-border rounded-lg p-1 relative">
                   <ItemIcon type={item.Type} size={36} quality={item.Quality} />
                   {item.Count > 1 && (
-                    <span className="absolute -bottom-1 -right-1 text-xs bg-surfaceHover rounded px-0.5">{item.Count}</span>
+                    <span className="absolute -bottom-1 -right-1 text-xs bg-surfaceHover rounded px-0.5">
+                      {item.Count}
+                    </span>
                   )}
                 </div>
               </div>
             ))}
           </div>
-          <div className="mt-4 pt-3 border-t border-border text-xs text-text-muted flex justify-between">
-            <span>Fame: {formatFame(data.totalFame ?? data.fame) ?? 0}</span>
-            {formatSilver(data.lootSilverValue) && (
-              <span className="text-yellow-500">{formatSilver(data.lootSilverValue)}</span>
+          <div className="mt-4 pt-3 border-t border-border text-xs text-text-muted flex justify-between -mx-5 px-5">
+            <span>Fame: {formatFame(kill.totalFame ?? kill.fame) ?? 0}</span>
+            {formatSilver(lootSilverValue) && (
+              <span className="text-yellow-500">
+                {formatSilver(lootSilverValue)}
+              </span>
             )}
           </div>
         </div>
       )}
 
-      {data.participants.length > 1 && (
+      {kill.participants.length > 1 && (
         <div className="card">
-          <h3 className="text-lg font-semibold mb-4">Participants</h3>
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-lg font-semibold">Participants</h3>
+            {kill.killerPartySize && kill.killerPartySize > 1 ? (
+              <span className="text-text-muted text-xs">
+                Party of {kill.killerPartySize} (Avg {kill.killerPartyMmr} MMR)
+              </span>
+            ) : null}
+          </div>
           <div className="space-y-4">
-            {data.participants.filter((p) => p.role !== 'VICTIM').map((p) => {
-              const equipItems = EQUIP_ORDER.filter((s) => p.equipment[s]).length
-              return (
-                <div key={p.id} className="border-b border-border last:border-0 pb-4 last:pb-0">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-3">
-                      {p.role === 'KILLER' && <span className="text-xs px-1.5 py-0.5 rounded bg-green-900/50 text-green-400 font-medium">KILLER</span>}
-                      {p.role === 'ASSISTER' && <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400 font-medium">ASSIST</span>}
-                      <Link href={`/player/${p.id}`} className="font-medium text-accent hover:underline">{p.name}</Link>
-                      <span className="text-text-muted text-xs">[{p.ip}]</span>
-                      <TierBadge tier={p.tier as any} size="sm" />
+            {kill.participants
+              .filter((p) => p.role !== "VICTIM")
+              .map((p) => {
+                const pEquip = buildEquipment(p.player.id);
+                return (
+                  <div
+                    key={p.player.id}
+                    className="border-b border-border last:border-0 pb-4 last:pb-0 -mx-5 px-5"
+                  >
+                    <div className="flex items-center gap-3 mb-2">
+                      <Link
+                        href={`/player/${p.player.id}`}
+                        className="font-medium text-accent hover:underline"
+                      >
+                        {p.player.name}
+                      </Link>
+                      {p.role === "KILLER" && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-green-900/50 text-green-400 font-medium">
+                          KILLER
+                        </span>
+                      )}
+                      {p.role === "ASSISTER" && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-blue-900/50 text-blue-400 font-medium">
+                          ASSIST
+                        </span>
+                      )}
+                      {(() => {
+                        const tier = getTier(p.player.mmr);
+                        return <TierBadge tier={tier} size="sm" />;
+                      })()}
+                      <span className="w-1 h-1 rounded-full bg-border/80"></span>
+                      <span className="text-text-secondary/80 font-medium text-xs">
+                        {Math.round(p.ip ?? 0)} IP
+                      </span>
                     </div>
-                    <div className="flex items-center gap-4 text-sm">
-                      {p.damageDone > 0 && <span className="text-text-muted">{p.damageDone.toLocaleString()} dmg</span>}
-                      {p.healingDone > 0 && <span className="text-text-muted">{p.healingDone.toLocaleString()} heal</span>}
-                      <span className={p.mmrChange >= 0 ? 'text-green-500' : 'text-red-500'}>
-                        {p.mmrChange >= 0 ? '+' : ''}{p.mmrChange} MMR
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        {EQUIP_ORDER.map((slot) => {
+                          const item = pEquip[slot];
+                          if (!item) return null;
+                          return (
+                            <div
+                              key={slot}
+                              className="flex flex-col items-center gap-0.5"
+                            >
+                              <div className="bg-surface border border-border rounded p-1">
+                                <ItemIcon
+                                  type={item.Type}
+                                  size={28}
+                                  quality={item.Quality}
+                                />
+                              </div>
+                              <span className="text-[10px] text-text-muted leading-none">
+                                {EQUIP_LABELS[slot]}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <span
+                        className={`text-xs font-medium tabular-nums ${p.mmrChange >= 0 ? "text-green-500" : "text-red-500"}`}
+                      >
+                        {p.mmrChange >= 0 ? "+" : ""}
+                        {p.mmrChange} MMR
                       </span>
                     </div>
                   </div>
-                  {equipItems > 0 && (
-                    <div className="flex items-center gap-2 mt-2 ml-12">
-                      {EQUIP_ORDER.map((slot) => {
-                        const item = p.equipment[slot]
-                        if (!item) return null
-                        return (
-                          <div key={slot} className="flex flex-col items-center gap-0.5">
-                            <div className="bg-surface border border-border rounded p-1">
-                              <ItemIcon type={item.Type} size={28} quality={item.Quality} />
-                            </div>
-                            <span className="text-[10px] text-text-muted leading-none">{EQUIP_LABELS[slot]}</span>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              )
-            })}
+                );
+              })}
           </div>
         </div>
       )}
+
+      {(() => {
+        const nonVictims = kill.participants.filter((p) => p.role !== "VICTIM");
+        const hasDamage = nonVictims.filter((p) => p.damageDone > 0).length > 1;
+        const hasHealing =
+          nonVictims.filter((p) => p.healingDone > 0).length > 1;
+        if (!hasDamage && !hasHealing) return null;
+        return (
+          <div className="space-y-6">
+            {hasDamage && (
+              <ContributionBar
+                title="Damage Contribution"
+                participants={nonVictims.map((p) => ({
+                  id: p.player.id,
+                  name: p.player.name,
+                  value: Math.round(p.damageDone),
+                }))}
+                unit="dmg"
+                colors={DAMAGE_COLORS}
+              />
+            )}
+            {hasHealing && (
+              <ContributionBar
+                title="Healing Contribution"
+                participants={nonVictims.map((p) => ({
+                  id: p.player.id,
+                  name: p.player.name,
+                  value: Math.round(p.healingDone),
+                }))}
+                unit="heal"
+                colors={HEALING_COLORS}
+              />
+            )}
+          </div>
+        );
+      })()}
     </div>
-  )
+  );
+}
+
+function EquipSlot({
+  slot,
+  item,
+  fallback,
+}: {
+  slot: string;
+  item: { Type: string; Count?: number; Quality?: number } | null | undefined;
+  fallback?: { Type: string; Count?: number; Quality?: number } | null;
+}) {
+  const displayItem = item || fallback;
+  return (
+    <div className="flex flex-col items-center gap-1">
+      <div
+        className={`bg-surface border rounded-lg p-2 ${displayItem ? "border-border" : "border-border/20 opacity-30"}`}
+      >
+        {displayItem ? (
+          <ItemIcon
+            type={displayItem.Type}
+            size={40}
+            quality={displayItem.Quality}
+          />
+        ) : (
+          <div className="w-10 h-10" />
+        )}
+      </div>
+      <span className="text-xs text-text-muted text-center leading-tight">
+        {EQUIP_LABELS[slot]}
+      </span>
+    </div>
+  );
+}
+
+function EquipmentGrid({
+  equip,
+}: {
+  equip: Record<
+    string,
+    { Type: string; Count?: number; Quality?: number } | null
+  >;
+}) {
+  return (
+    <div className="space-y-3">
+      {EQUIP_ROWS.map((row, ri) => (
+        <div key={ri} className="grid grid-cols-3 gap-3">
+          {row.map((slot) => (
+            <EquipSlot
+              key={slot}
+              slot={slot}
+              item={equip[slot]}
+              fallback={
+                slot === "OffHand" && !equip.OffHand
+                  ? equip.MainHand
+                  : undefined
+              }
+            />
+          ))}
+        </div>
+      ))}
+      <div className="flex justify-center">
+        <EquipSlot slot="Mount" item={equip.Mount} />
+      </div>
+    </div>
+  );
+}
+
+function ContributionBar({
+  title,
+  participants,
+  unit,
+  colors,
+}: {
+  title: string;
+  participants: { id: string; name: string; value: number }[];
+  unit: string;
+  colors: string[];
+}) {
+  const total = participants.reduce((s, p) => s + p.value, 0);
+  if (total <= 0) return null;
+  const sorted = [...participants].sort((a, b) => b.value - a.value);
+
+  return (
+    <div className="card">
+      <h3 className="text-lg font-semibold mb-5">{title}</h3>
+      <div className="w-full h-3 rounded-full bg-surface overflow-hidden flex gap-[2px]">
+        {sorted.map((p, i) => {
+          const pct = (p.value / total) * 100;
+          if (pct < 1) return null;
+          return (
+            <div
+              key={p.id}
+              className="h-full rounded-full transition-all duration-500 first:rounded-l-full last:rounded-r-full"
+              style={{
+                width: `${pct}%`,
+                backgroundColor: colors[i % colors.length],
+                minWidth: pct > 1 ? "4px" : "0px",
+              }}
+              title={`${p.name}: ${pct.toFixed(1)}% (${p.value.toLocaleString()} ${unit})`}
+            />
+          );
+        })}
+      </div>
+      <div className="space-y-2.5 mt-5">
+        {sorted.map((p, i) => (
+          <div key={p.id} className="flex items-center gap-3 min-w-0">
+            <span
+              className="w-3 h-3 rounded-full flex-shrink-0"
+              style={{ backgroundColor: colors[i % colors.length] }}
+            />
+            <span className="text-sm text-text-primary">{p.name}</span>
+            <span className="text-xs text-text-muted tabular-nums ml-auto">
+              {p.value.toLocaleString()} {unit}
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }

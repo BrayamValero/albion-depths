@@ -10,6 +10,8 @@ export function WeaponIcon({ type, size = 24 }: { type?: string | null; size?: n
       alt={type}
       className="inline-block align-middle"
       style={{ width: size, height: size }}
+      loading="lazy"
+      decoding="async"
       onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
     />
   )

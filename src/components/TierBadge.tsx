@@ -1,5 +1,6 @@
 import { Tier } from '@/lib/types'
 import { clsx } from 'clsx'
+import { memo } from 'react'
 
 interface TierBadgeProps {
   tier: Tier
@@ -22,7 +23,7 @@ const tierSizes = {
   lg: 'text-base px-4 py-1.5',
 }
 
-export function TierBadge({ tier, size = 'md' }: TierBadgeProps) {
+export const TierBadge = memo(function TierBadge({ tier, size = 'md' }: TierBadgeProps) {
   return (
     <span
       className={clsx(
@@ -34,4 +35,4 @@ export function TierBadge({ tier, size = 'md' }: TierBadgeProps) {
       {tier}
     </span>
   )
-}
+})

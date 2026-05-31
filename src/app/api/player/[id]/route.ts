@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { getTier } from '@/lib/mmr'
+import { getPrices, calcValue } from '@/lib/pricing'
 
 export async function GET(
   request: NextRequest,
@@ -26,6 +27,7 @@ export async function GET(
           victim: {
             select: { id: true, name: true, mmr: true },
           },
+          inventory: true,
         },
       }),
       prisma.kill.findMany({
@@ -36,6 +38,7 @@ export async function GET(
           killer: {
             select: { id: true, name: true, mmr: true },
           },
+          inventory: true,
         },
       }),
       prisma.eventParticipant.findMany({
@@ -47,11 +50,44 @@ export async function GET(
             include: {
               killer: { select: { id: true, name: true, mmr: true } },
               victim: { select: { id: true, name: true, mmr: true } },
+              inventory: true,
             },
           },
         },
       }),
     ])
+
+    const allKillData = [
+      ...recentKills,
+      ...recentDeaths,
+      ...recentAssistEvents.map((p) => p.kill),
+    ]
+
+    const killInventories = new Map<number, { Type: string; Count: number; Quality: number }[]>()
+    const allItemTypes = new Set<string>()
+
+    for (const kill of allKillData) {
+      const inv = kill.inventory
+      if (inv && inv.length > 0) {
+        const items = inv.map((i) => ({
+          Type: i.itemType,
+          Count: i.count,
+          Quality: i.quality,
+        }))
+        killInventories.set(kill.id, items)
+        items.forEach((i) => allItemTypes.add(i.Type))
+      }
+    }
+
+    const priceMap = await getPrices(
+      Array.from(allItemTypes).map(t => ({ Type: t, Quality: 1 }))
+    )
+
+    const lootSilverMap = new Map<number, number>()
+    killInventories.forEach((items, killId) => {
+      const value = Math.round(calcValue(items, priceMap))
+      if (value > 0) lootSilverMap.set(killId, value)
+    })
 
     return NextResponse.json({
       id: player.id,
@@ -68,11 +104,14 @@ export async function GET(
         id: k.id,
         eventId: k.eventId,
         role: 'KILL' as const,
-        killer: { id: player.id, name: player.name, mmr: player.mmr, tier: getTier(player.mmr) },
-        victim: { id: k.victim.id, name: k.victim.name, mmr: k.victim.mmr, tier: getTier(k.victim.mmr) },
+        playerName: player.name,
+        playerId: player.id,
+        killer: { id: player.id, name: player.name, tier: getTier(player.mmr) },
+        victim: { id: k.victim.id, name: k.victim.name, tier: getTier(k.victim.mmr) },
         mmrChange: k.mmrChange,
         killTime: k.killTime,
-        fame: k.fame,
+        totalFame: k.totalFame,
+        lootSilverValue: lootSilverMap.get(k.id) ?? null,
         killerWeapon: k.killerWeapon,
         victimWeapon: k.victimWeapon,
         killerIp: Math.round(k.killerIp ?? 0),
@@ -82,11 +121,14 @@ export async function GET(
         id: k.id,
         eventId: k.eventId,
         role: 'DEATH' as const,
-        killer: { id: k.killer.id, name: k.killer.name, mmr: k.killer.mmr, tier: getTier(k.killer.mmr) },
-        victim: { id: player.id, name: player.name, mmr: player.mmr, tier: getTier(player.mmr) },
+        playerName: player.name,
+        playerId: player.id,
+        killer: { id: k.killer.id, name: k.killer.name, tier: getTier(k.killer.mmr) },
+        victim: { id: player.id, name: player.name, tier: getTier(player.mmr) },
         mmrChange: k.mmrChange,
         killTime: k.killTime,
-        fame: k.fame,
+        totalFame: k.totalFame,
+        lootSilverValue: lootSilverMap.get(k.id) ?? null,
         killerWeapon: k.killerWeapon,
         victimWeapon: k.victimWeapon,
         killerIp: Math.round(k.killerIp ?? 0),
@@ -96,11 +138,14 @@ export async function GET(
         id: p.kill.id,
         eventId: p.kill.eventId,
         role: 'ASSIST' as const,
-        killer: { id: p.kill.killer.id, name: p.kill.killer.name, mmr: p.kill.killer.mmr, tier: getTier(p.kill.killer.mmr) },
-        victim: { id: p.kill.victim.id, name: p.kill.victim.name, mmr: p.kill.victim.mmr, tier: getTier(p.kill.victim.mmr) },
+        playerName: player.name,
+        playerId: player.id,
+        killer: { id: p.kill.killer.id, name: p.kill.killer.name, tier: getTier(p.kill.killer.mmr) },
+        victim: { id: p.kill.victim.id, name: p.kill.victim.name, tier: getTier(p.kill.victim.mmr) },
         mmrChange: p.mmrChange,
         killTime: p.kill.killTime,
-        fame: p.kill.fame,
+        totalFame: p.kill.totalFame,
+        lootSilverValue: lootSilverMap.get(p.kill.id) ?? null,
         killerWeapon: p.kill.killerWeapon,
         victimWeapon: p.kill.victimWeapon,
         killerIp: Math.round(p.kill.killerIp ?? 0),

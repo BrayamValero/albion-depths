@@ -64,6 +64,15 @@ export async function searchPlayers(query: string): Promise<{ id: string; name: 
   return data.filter((item: { type: string }) => item.type === 'Player')
 }
 
+export async function fetchPlayerKills(playerId: string): Promise<any[]> {
+  const url = `${API_BASE}/players/${playerId}/kills`
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch player kills: ${response.status}`)
+  }
+  return response.json()
+}
+
 export async function getPlayerInfo(playerId: string) {
   const url = `${API_BASE}/players/${playerId}`
   const response = await fetch(url)

@@ -3,82 +3,145 @@
 @tailwind utilities;
 
 :root {
-  --background: #0f0f0f;
-  --surface: #1a1a1a;
-  --surface-hover: #252525;
-  --border: #2a2a2a;
-  --text-primary: #ffffff;
-  --text-secondary: #a0a0a0;
-  --text-muted: #666666;
-  --accent: #e63946;
+  --background: #0a0707;
+  --surface: #141111;
+  --surface-hover: #1c1717;
+  --border: #2c1a1a;
+  --text-primary: #f5f0f0;
+  --text-secondary: #c8b9b9;
+  --text-muted: #8c7676;
+  --accent: #ff4d5a;
+  --accent-gold: #d4af37;
+  --card-bg: rgba(20, 17, 17, 0.75);
 }
 
 body {
   background-color: var(--background);
+  background-image: 
+    radial-gradient(circle at 50% -250px, rgba(255, 77, 90, 0.18), transparent 700px),
+    radial-gradient(circle at 10% 30%, rgba(20, 5, 5, 0.6), transparent 50%),
+    radial-gradient(circle at 90% 70%, rgba(40, 10, 10, 0.4), transparent 50%),
+    linear-gradient(to bottom, #0a0707, #030202);
+  background-attachment: fixed;
   color: var(--text-primary);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  font-family: var(--font-outfit), var(--font-inter), -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
 }
 
 @layer components {
   .container-custom {
-    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8;
+    @apply max-w-6xl mx-auto px-4 sm:px-6 lg:px-8;
   }
 
   .card {
-    @apply bg-surface border border-border rounded-lg p-4;
+    @apply border border-border rounded-xl p-5 transition-all duration-300;
+    background: var(--card-bg);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5);
   }
 
   .card-hover {
-    @apply hover:bg-surfaceHover transition-colors duration-200;
+    @apply hover:border-accent/40 transition-all duration-300;
+    box-shadow: 0 4px 30px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  }
+  
+  .card-hover:hover {
+    box-shadow: 0 0 20px rgba(255, 77, 90, 0.08), 0 4px 30px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.07);
+    transform: translateY(-1px);
   }
 
   .btn-primary {
-    @apply bg-accent text-white px-4 py-2 rounded-lg font-medium hover:bg-opacity-90 transition-colors;
+    @apply bg-accent text-white px-5 py-2.5 rounded-lg font-medium hover:bg-opacity-90 active:scale-[0.98] transition-all;
+    box-shadow: 0 0 15px rgba(255, 77, 90, 0.3);
   }
 
   .btn-secondary {
-    @apply bg-surface border border-border text-text-secondary px-4 py-2 rounded-lg font-medium hover:bg-surfaceHover transition-colors;
+    @apply bg-surface border border-border text-text-secondary px-5 py-2.5 rounded-lg font-medium hover:bg-surfaceHover active:scale-[0.98] transition-all;
   }
 
   .input {
-    @apply bg-surface border border-border rounded-lg px-4 py-2 text-text-primary placeholder-text-muted focus:outline-none focus:border-accent transition-colors;
+    @apply bg-surface/50 border border-border rounded-lg px-4 py-2 text-text-primary placeholder-text-muted focus:outline-none focus:border-accent focus:bg-surface transition-all;
   }
 
   .link {
-    @apply text-accent hover:underline;
+    @apply text-accent hover:text-accent/80 hover:underline transition-colors;
+  }
+  
+  .gothic-title {
+    font-family: var(--font-cinzel), serif;
+    letter-spacing: 0.05em;
+  }
+
+  .gothic-decorative {
+    font-family: var(--font-cinzel-decorative), serif;
   }
 }
 
 @layer utilities {
   .text-tier-iron {
-    color: #8b8b8b;
+    color: #a0a0a0;
   }
   .text-tier-bronze {
     color: #cd7f32;
   }
   .text-tier-silver {
-    color: #c0c0c0;
+    color: #d8d8d8;
   }
   .text-tier-gold {
     color: #ffd700;
   }
+  .text-tier-platinum {
+    color: #00ffff;
+  }
+  .text-tier-emerald {
+    color: #2ecc71;
+  }
   .text-tier-crystal {
-    color: #b9f2ff;
+    color: #9b59b6;
   }
 
   .bg-tier-iron {
-    background-color: #8b8b8b;
+    background-color: #555555;
   }
   .bg-tier-bronze {
-    background-color: #cd7f32;
+    background-color: #8c5a2b;
   }
   .bg-tier-silver {
-    background-color: #c0c0c0;
+    background-color: #8a9ba8;
   }
   .bg-tier-gold {
-    background-color: #ffd700;
+    background-color: #b59410;
+  }
+  .bg-tier-platinum {
+    background-color: #009999;
+  }
+  .bg-tier-emerald {
+    background-color: #1e824c;
   }
   .bg-tier-crystal {
-    background-color: #b9f2ff;
+    background-color: #7d3c98;
   }
+
+  /* Custom Glows */
+  .glow-red {
+    box-shadow: 0 0 10px rgba(255, 77, 90, 0.4);
+  }
+  .glow-green {
+    box-shadow: 0 0 10px rgba(16, 185, 129, 0.4);
+  }
+}
+
+@keyframes pulse-dot {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0.6;
+  }
+}
+
+.animate-pulse-dot {
+  animation: pulse-dot 2s infinite ease-in-out;
 }

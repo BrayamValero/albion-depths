@@ -44,6 +44,8 @@ export interface KillEvent {
   killerIp?: number
   victimIp?: number
   groupMemberCount?: number
+  killerEquipment?: Record<string, { Type: string; Count?: number; Quality?: number } | null>
+  victimEquipment?: Record<string, { Type: string; Count?: number; Quality?: number } | null>
 }
 
 export interface HeadToHeadStats {

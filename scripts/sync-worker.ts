@@ -6,6 +6,8 @@ import {
   extractWeaponType,
 } from '../src/lib/albion-api'
 import { calculateMMRChange, calculatePartyAvgMMR, STARTING_MMR } from '../src/lib/mmr'
+import { extractWeaponFamily, extractWeaponKey } from '../src/lib/weapons'
+import { getPrices, calcValue } from '../src/lib/pricing'
 import { AlbionKillEvent } from '../src/lib/types'
 
 const prisma = new PrismaClient()
@@ -26,7 +28,7 @@ async function ensurePlayer(id: string, name: string) {
   return player!
 }
 
-async function processEvent(event: AlbionKillEvent): Promise<boolean> {
+async function processEvent(event: AlbionKillEvent, priceMap?: Map<string, Map<number, number>>): Promise<boolean> {
   const existingKill = await prisma.kill.findUnique({
     where: { eventId: String(event.EventId) },
   })
@@ -61,11 +63,16 @@ async function processEvent(event: AlbionKillEvent): Promise<boolean> {
 
   const participants = event.Participants ?? []
   const seenIds = new Set<string>([killerData.Id, victimData.Id])
-  const assisters: { player: Awaited<ReturnType<typeof ensurePlayer>>; mmrChange: number; damage: number; healing: number }[] = []
+  const assisters: { player: Awaited<ReturnType<typeof ensurePlayer>>; mmrChange: number; damage: number; healing: number; equipment: any }[] = []
   let killerDamage = 0
   let killerHealing = 0
   let victimDamage = 0
   let victimHealing = 0
+
+  // Collect equipment data from all participants (including the assisters we'll process)
+  const participantEquipmentMap = new Map<string, any>()
+  if (killerData.Equipment) participantEquipmentMap.set(killerData.Id, killerData.Equipment)
+  if (victimData.Equipment) participantEquipmentMap.set(victimData.Id, victimData.Equipment)
 
   for (const p of participants) {
     if (p.Id === killerData.Id) {
@@ -76,13 +83,14 @@ async function processEvent(event: AlbionKillEvent): Promise<boolean> {
       victimDamage = p.DamageDone ?? 0
       victimHealing = p.SupportHealingDone ?? 0
     }
+    if (p.Equipment) participantEquipmentMap.set(p.Id, p.Equipment)
     if (seenIds.has(p.Id)) continue
     seenIds.add(p.Id)
 
     const assister = await ensurePlayer(p.Id, p.Name)
     const assisterAvg = Math.round((assister.mmr + victim.mmr) / 2)
     const mmrChange = calculateMMRChange(assister.mmr, assisterAvg, true, 0)
-    assisters.push({ player: assister, mmrChange, damage: p.DamageDone ?? 0, healing: p.SupportHealingDone ?? 0 })
+    assisters.push({ player: assister, mmrChange, damage: p.DamageDone ?? 0, healing: p.SupportHealingDone ?? 0, equipment: p.Equipment })
   }
 
   await prisma.$transaction(async (tx) => {
@@ -105,15 +113,24 @@ async function processEvent(event: AlbionKillEvent): Promise<boolean> {
       },
     })
 
-    const kill = await tx.kill.create({
-      data: {
-        eventId: String(event.EventId),
-        killerId: killer.id,
-        victimId: victim.id,
-        mmrChange: killerMMRChange,
-        killTime: new Date(event.TimeStamp),
-        fame: killerData.KillFame,
-        rawData: JSON.stringify(event),
+      const lootValue = priceMap && victimData.Inventory
+        ? Math.round(calcValue(
+            victimData.Inventory
+              .filter((i: any) => i?.Type)
+              .map((i: any) => ({ Type: i.Type, Count: i.Count ?? 1, Quality: i.Quality ?? 1 })),
+            priceMap,
+          ))
+        : null
+
+      const kill = await tx.kill.create({
+        data: {
+          eventId: String(event.EventId),
+          killerId: killer.id,
+          victimId: victim.id,
+          mmrChange: killerMMRChange,
+          killTime: new Date(event.TimeStamp),
+          fame: killerData.KillFame,
+          lootSilverValue: lootValue && lootValue > 0 ? lootValue : null,
         killerWeapon: extractWeaponType(killerData.Equipment),
         victimWeapon: extractWeaponType(victimData.Equipment),
         killerGuild: killerData.GuildName ?? null,
@@ -127,10 +144,54 @@ async function processEvent(event: AlbionKillEvent): Promise<boolean> {
         groupMemberCount: event.groupMemberCount ?? null,
         killerPartyMmr,
         killerPartySize,
+        groupMembers: groupMembers.length > 0 ? JSON.stringify(groupMembers.map(gm => gm.Id)) : null,
         battleId: event.BattleId != null ? String(event.BattleId) : null,
         location: event.Location ?? null,
       },
     })
+
+    const EQUIP_SLOTS = ['MainHand', 'OffHand', 'Head', 'Armor', 'Shoes', 'Bag', 'Cape', 'Mount', 'Potion', 'Food'] as const
+
+    const equipRows: { killId: number; owner: string; slot: string; itemType: string; quality: number; count: number }[] = []
+    const invRows: { killId: number; itemType: string; quality: number; count: number }[] = []
+
+    const collectEquipment = (owner: string, equip: any) => {
+      if (!equip) return
+      for (const slot of EQUIP_SLOTS) {
+        const item = equip[slot]
+        if (item?.Type) {
+          equipRows.push({ killId: kill.id, owner, slot, itemType: item.Type, quality: item.Quality ?? 1, count: item.Count ?? 1 })
+        }
+      }
+    }
+
+    const collectInventory = (inv: any[] | null | undefined) => {
+      if (!inv) return
+      for (const item of inv) {
+        if (item?.Type) {
+          invRows.push({ killId: kill.id, itemType: item.Type, quality: item.Quality ?? 1, count: item.Count ?? 1 })
+        }
+      }
+    }
+
+    collectEquipment(killer.id, killerData.Equipment)
+    collectEquipment(victim.id, victimData.Equipment)
+    collectInventory(victimData.Inventory)
+
+    for (const a of assisters) {
+      const equip = participantEquipmentMap.get(a.player.id)
+      if (equip) collectEquipment(a.player.id, equip)
+    }
+
+    if (equipRows.length > 0) await tx.killEquipment.createMany({ data: equipRows })
+    if (invRows.length > 0) await tx.killInventory.createMany({ data: invRows })
+
+    const getParticipantIp = (playerId: string): number | null => {
+      const p = participants.find((p) => p.Id === playerId)
+      return p ? Math.round(p.AverageItemPower ?? 0) : null
+    }
+
+    const participantIp = getParticipantIp(killer.id)
 
     await tx.headToHead.upsert({
       where: { killerId_victimId: { killerId: killer.id, victimId: victim.id } },
@@ -146,6 +207,7 @@ async function processEvent(event: AlbionKillEvent): Promise<boolean> {
         mmrChange: killerMMRChange,
         damageDone: killerDamage,
         healingDone: killerHealing,
+        ip: getParticipantIp(killer.id),
       },
     })
 
@@ -157,8 +219,30 @@ async function processEvent(event: AlbionKillEvent): Promise<boolean> {
         mmrChange: victimMMRChange,
         damageDone: victimDamage,
         healingDone: victimHealing,
+        ip: getParticipantIp(victim.id),
       },
     })
+
+    // Upsert WeaponStats for killer, victim, and assisters
+    const kwFamily = extractWeaponFamily(kill.killerWeapon)
+    const kwKey = extractWeaponKey(kill.killerWeapon)
+    if (kwFamily && kwKey) {
+      await tx.weaponStats.upsert({
+        where: { playerId_weaponKey: { playerId: killer.id, weaponKey: kwKey } },
+        update: { kills: { increment: 1 } },
+        create: { playerId: killer.id, weaponKey: kwKey, weaponFamily: kwFamily, kills: 1, deaths: 0 },
+      })
+    }
+
+    const vwFamily = extractWeaponFamily(kill.victimWeapon)
+    const vwKey = extractWeaponKey(kill.victimWeapon)
+    if (vwFamily && vwKey) {
+      await tx.weaponStats.upsert({
+        where: { playerId_weaponKey: { playerId: victim.id, weaponKey: vwKey } },
+        update: { deaths: { increment: 1 } },
+        create: { playerId: victim.id, weaponKey: vwKey, weaponFamily: vwFamily, kills: 0, deaths: 1 },
+      })
+    }
 
     for (const a of assisters) {
       await tx.player.update({
@@ -177,8 +261,20 @@ async function processEvent(event: AlbionKillEvent): Promise<boolean> {
           mmrChange: a.mmrChange,
           damageDone: a.damage,
           healingDone: a.healing,
+          ip: getParticipantIp(a.player.id),
         },
       })
+
+      const awType = extractWeaponType(a.equipment)
+      const awFamily = extractWeaponFamily(awType)
+      const awKey = extractWeaponKey(awType)
+      if (awFamily && awKey) {
+        await tx.weaponStats.upsert({
+          where: { playerId_weaponKey: { playerId: a.player.id, weaponKey: awKey } },
+          update: { kills: { increment: 1 } },
+          create: { playerId: a.player.id, weaponKey: awKey, weaponFamily: awFamily, kills: 1, deaths: 0 },
+        })
+      }
     }
   })
 
@@ -199,12 +295,27 @@ async function sync(): Promise<number> {
   )
   log(`Depths-filtered: ${depthsEvents.length}`)
 
+  // Collect all victim inventory items across all events for bulk pricing
+  const allInvItems: { Type: string; Quality: number }[] = []
+  for (const event of depthsEvents) {
+    const inv = event.Victim?.Inventory
+    if (inv) {
+      for (const item of inv) {
+        if (item?.Type) {
+          allInvItems.push({ Type: item.Type, Quality: item.Quality ?? 1 })
+        }
+      }
+    }
+  }
+
+  const priceMap = allInvItems.length > 0 ? await getPrices(allInvItems) : undefined
+
   let syncedCount = 0
   let highestEventId = lastEventId
 
   for (const event of depthsEvents) {
     try {
-      const synced = await processEvent(event)
+      const synced = await processEvent(event, priceMap)
       if (synced) syncedCount++
     } catch (error) {
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {

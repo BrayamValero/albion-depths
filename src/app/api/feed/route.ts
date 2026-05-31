@@ -8,68 +8,39 @@ export async function GET(request: NextRequest) {
   try {
     const searchParams = request.nextUrl.searchParams
     const limit = Math.min(parseInt(searchParams.get('limit') || '50'), 100)
+    const skip = Math.max(parseInt(searchParams.get('skip') || '0'), 0)
 
-    const kills = await prisma.kill.findMany({
-      orderBy: { killTime: 'desc' },
-      take: limit,
-      include: {
-        killer: {
-          select: { id: true, name: true, mmr: true },
+    const [total, kills] = await Promise.all([
+      prisma.kill.count(),
+      prisma.kill.findMany({
+        orderBy: { killTime: 'desc' },
+        skip,
+        take: limit,
+        include: {
+          killer: {
+            select: { id: true, name: true, mmr: true },
+          },
+          victim: {
+            select: { id: true, name: true, mmr: true },
+          },
+          inventory: true,
+          equipment: true,
         },
-        victim: {
-          select: { id: true, name: true, mmr: true },
-        },
-      },
-    })
+      }),
+    ])
 
-    const killInventories = kills.map((kill) => {
-      let items: { Type: string; Count: number; Quality: number }[] = []
-      if (kill.rawData) {
-        try {
-          const raw = JSON.parse(kill.rawData)
-          const inv = raw.Victim?.Inventory
-          if (inv) {
-            items = inv.filter((i: any) => i?.Type).map((i: any) => ({
-              Type: i.Type,
-              Count: i.Count ?? 1,
-              Quality: i.Quality ?? 0,
-            }))
-          }
-        } catch {}
-      }
-      return items
-    })
-
-    let priceMap = new Map<string, Map<number, number>>()
-    try {
-      const allTypes = Array.from(new Set(killInventories.flat().map((i) => i.Type)))
-      if (allTypes.length > 0) {
-        const res = await fetch(
-          `https://www.albion-online-data.com/api/v2/stats/prices/${allTypes.join(',')}?qualities=1,2,3,4,5`,
-          { signal: AbortSignal.timeout(8000) }
-        )
-        if (res.ok) {
-          const data: any[] = await res.json()
-          for (const entry of data) {
-            const id = entry.item_id
-            const q = entry.quality ?? 1
-            const price = Math.max(entry.sell_price_min ?? 0, 0)
-            if (price <= 0) continue
-            if (!priceMap.has(id)) priceMap.set(id, new Map())
-            const prev = priceMap.get(id)!.get(q) ?? 0
-            if (price > prev) priceMap.get(id)!.set(q, price)
-          }
+    const buildEquipment = (ownerId: string, allEquip: typeof kills[0]['equipment']) => {
+      const equip: Record<string, { Type: string; Count: number; Quality: number } | null> = {}
+      for (const eq of allEquip) {
+        if (eq.owner === ownerId) {
+          equip[eq.slot] = { Type: eq.itemType, Count: eq.count, Quality: eq.quality }
         }
       }
-    } catch { /* price fetch failed */ }
+      return equip
+    }
 
-    const data = kills.map((kill, idx) => {
-      const invItems = killInventories[idx]
-      const lootSilverValue = invItems.reduce((sum, item) => {
-        const byQ = priceMap.get(item.Type)
-        if (!byQ) return sum
-        return sum + (byQ.get(item.Quality) ?? 0) * item.Count
-      }, 0)
+    const data = kills.map((kill) => {
+      const invItems = kill.inventory.map((i) => ({ Type: i.itemType, Count: i.count, Quality: i.quality }))
 
       return {
         id: kill.id,
@@ -91,7 +62,7 @@ export async function GET(request: NextRequest) {
         killTime: kill.killTime,
         fame: kill.fame,
         totalFame: kill.totalFame,
-        lootSilverValue: lootSilverValue > 0 ? Math.round(lootSilverValue) : null,
+        lootSilverValue: kill.lootSilverValue,
         lootCount: invItems.reduce((s, i) => s + i.Count, 0),
         killerWeapon: kill.killerWeapon,
         victimWeapon: kill.victimWeapon,
@@ -102,10 +73,12 @@ export async function GET(request: NextRequest) {
         killerIp: Math.round(kill.killerIp ?? 0),
         victimIp: Math.round(kill.victimIp ?? 0),
         groupMemberCount: kill.groupMemberCount,
+        killerEquipment: buildEquipment(kill.killerId, kill.equipment),
+        victimEquipment: buildEquipment(kill.victimId, kill.equipment),
       }
     })
 
-    return NextResponse.json({ data })
+    return NextResponse.json({ data, total })
   } catch (error) {
     console.error('Error fetching feed:', error)
     return NextResponse.json({ error: 'Failed to fetch feed' }, { status: 500 })

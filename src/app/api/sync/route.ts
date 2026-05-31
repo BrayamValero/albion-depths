@@ -8,6 +8,8 @@ import {
   extractWeaponType,
 } from '@/lib/albion-api'
 import { calculateMMRChange, calculatePartyAvgMMR, STARTING_MMR } from '@/lib/mmr'
+import { extractWeaponFamily, extractWeaponKey } from '@/lib/weapons'
+import { getPrices, calcValue } from '@/lib/pricing'
 import { AlbionKillEvent } from '@/lib/types'
 
 async function ensurePlayer(id: string, name: string) {
@@ -36,6 +38,21 @@ export async function POST() {
 
     let syncedCount = 0
     let highestEventId = lastEventId
+
+    // Collect all victim inventory items across all events for bulk pricing
+    const allInvItems: { Type: string; Quality: number }[] = []
+    for (const event of depthsEvents) {
+      const inv = event.Victim?.Inventory
+      if (inv) {
+        for (const item of inv) {
+          if (item?.Type) {
+            allInvItems.push({ Type: item.Type, Quality: item.Quality ?? 1 })
+          }
+        }
+      }
+    }
+
+    const priceMap = allInvItems.length > 0 ? await getPrices(allInvItems) : undefined
 
     for (const event of depthsEvents) {
       const existingKill = await prisma.kill.findUnique({
@@ -71,11 +88,15 @@ export async function POST() {
 
       const participants = event.Participants ?? []
       const seenIds = new Set<string>([killerData.Id, victimData.Id])
-      const assisters: { player: Awaited<ReturnType<typeof ensurePlayer>>; mmrChange: number; damage: number; healing: number }[] = []
+      const assisters: { player: Awaited<ReturnType<typeof ensurePlayer>>; mmrChange: number; damage: number; healing: number; equipment: any }[] = []
       let killerDamage = 0
       let killerHealing = 0
       let victimDamage = 0
       let victimHealing = 0
+
+      const participantEquipmentMap = new Map<string, any>()
+      if (killerData.Equipment) participantEquipmentMap.set(killerData.Id, killerData.Equipment)
+      if (victimData.Equipment) participantEquipmentMap.set(victimData.Id, victimData.Equipment)
 
       for (const p of participants) {
         if (p.Id === killerData.Id) {
@@ -86,12 +107,13 @@ export async function POST() {
           victimDamage = p.DamageDone ?? 0
           victimHealing = p.SupportHealingDone ?? 0
         }
+        if (p.Equipment) participantEquipmentMap.set(p.Id, p.Equipment)
         if (seenIds.has(p.Id)) continue
         seenIds.add(p.Id)
         const assister = await ensurePlayer(p.Id, p.Name)
         const assisterAvg = Math.round((assister.mmr + victim.mmr) / 2)
         const mmrChange = calculateMMRChange(assister.mmr, assisterAvg, true, 0)
-        assisters.push({ player: assister, mmrChange, damage: p.DamageDone ?? 0, healing: p.SupportHealingDone ?? 0 })
+        assisters.push({ player: assister, mmrChange, damage: p.DamageDone ?? 0, healing: p.SupportHealingDone ?? 0, equipment: p.Equipment })
       }
 
       try {
@@ -115,6 +137,15 @@ export async function POST() {
             },
           })
 
+          const lootValue = priceMap && victimData.Inventory
+            ? Math.round(calcValue(
+                victimData.Inventory
+                  .filter((i: any) => i?.Type)
+                  .map((i: any) => ({ Type: i.Type, Count: i.Count ?? 1, Quality: i.Quality ?? 1 })),
+                priceMap,
+              ))
+            : null
+
           const kill = await tx.kill.create({
             data: {
               eventId: String(event.EventId),
@@ -123,7 +154,7 @@ export async function POST() {
               mmrChange: killerMMRChange,
               killTime: new Date(event.TimeStamp),
               fame: killerData.KillFame,
-              rawData: JSON.stringify(event),
+              lootSilverValue: lootValue && lootValue > 0 ? lootValue : null,
               killerWeapon: extractWeaponType(killerData.Equipment),
               victimWeapon: extractWeaponType(victimData.Equipment),
               killerGuild: killerData.GuildName ?? null,
@@ -137,10 +168,52 @@ export async function POST() {
               groupMemberCount: event.groupMemberCount ?? null,
               killerPartyMmr,
               killerPartySize,
+              groupMembers: groupMembers.length > 0 ? JSON.stringify(groupMembers.map(gm => gm.Id)) : null,
               battleId: event.BattleId != null ? String(event.BattleId) : null,
               location: event.Location ?? null,
             },
           })
+
+          const EQUIP_SLOTS = ['MainHand', 'OffHand', 'Head', 'Armor', 'Shoes', 'Bag', 'Cape', 'Mount', 'Potion', 'Food'] as const
+
+          const equipRows: { killId: number; owner: string; slot: string; itemType: string; quality: number; count: number }[] = []
+          const invRows: { killId: number; itemType: string; quality: number; count: number }[] = []
+
+          const collectEquipment = (owner: string, equip: any) => {
+            if (!equip) return
+            for (const slot of EQUIP_SLOTS) {
+              const item = equip[slot]
+              if (item?.Type) {
+                equipRows.push({ killId: kill.id, owner, slot, itemType: item.Type, quality: item.Quality ?? 1, count: item.Count ?? 1 })
+              }
+            }
+          }
+
+          const collectInventory = (inv: any[] | null | undefined) => {
+            if (!inv) return
+            for (const item of inv) {
+              if (item?.Type) {
+                invRows.push({ killId: kill.id, itemType: item.Type, quality: item.Quality ?? 1, count: item.Count ?? 1 })
+              }
+            }
+          }
+
+          collectEquipment(killer.id, killerData.Equipment)
+          collectEquipment(victim.id, victimData.Equipment)
+          collectInventory(victimData.Inventory)
+
+          for (const a of assisters) {
+            const equip = participantEquipmentMap.get(a.player.id)
+            if (equip) collectEquipment(a.player.id, equip)
+          }
+
+          if (equipRows.length > 0) await tx.killEquipment.createMany({ data: equipRows })
+          if (invRows.length > 0) await tx.killInventory.createMany({ data: invRows })
+
+          const getParticipantIp = (playerId: string): number | null => {
+            const p = participants.find((p) => p.Id === playerId)
+            return p ? Math.round(p.AverageItemPower ?? 0) : null
+          }
 
           await tx.headToHead.upsert({
             where: { killerId_victimId: { killerId: killer.id, victimId: victim.id } },
@@ -156,6 +229,7 @@ export async function POST() {
               mmrChange: killerMMRChange,
               damageDone: killerDamage,
               healingDone: killerHealing,
+              ip: getParticipantIp(killer.id),
             },
           })
 
@@ -167,8 +241,30 @@ export async function POST() {
               mmrChange: victimMMRChange,
               damageDone: victimDamage,
               healingDone: victimHealing,
+              ip: getParticipantIp(victim.id),
             },
           })
+
+          // Upsert WeaponStats for killer, victim, and assisters
+          const kwFamily = extractWeaponFamily(kill.killerWeapon)
+          const kwKey = extractWeaponKey(kill.killerWeapon)
+          if (kwFamily && kwKey) {
+            await tx.weaponStats.upsert({
+              where: { playerId_weaponKey: { playerId: killer.id, weaponKey: kwKey } },
+              update: { kills: { increment: 1 } },
+              create: { playerId: killer.id, weaponKey: kwKey, weaponFamily: kwFamily, kills: 1, deaths: 0 },
+            })
+          }
+
+          const vwFamily = extractWeaponFamily(kill.victimWeapon)
+          const vwKey = extractWeaponKey(kill.victimWeapon)
+          if (vwFamily && vwKey) {
+            await tx.weaponStats.upsert({
+              where: { playerId_weaponKey: { playerId: victim.id, weaponKey: vwKey } },
+              update: { deaths: { increment: 1 } },
+              create: { playerId: victim.id, weaponKey: vwKey, weaponFamily: vwFamily, kills: 0, deaths: 1 },
+            })
+          }
 
           for (const a of assisters) {
             await tx.player.update({
@@ -187,8 +283,20 @@ export async function POST() {
                 mmrChange: a.mmrChange,
                 damageDone: a.damage,
                 healingDone: a.healing,
+                ip: getParticipantIp(a.player.id),
               },
             })
+
+            const awType = extractWeaponType(a.equipment)
+            const awFamily = extractWeaponFamily(awType)
+            const awKey = extractWeaponKey(awType)
+            if (awFamily && awKey) {
+              await tx.weaponStats.upsert({
+                where: { playerId_weaponKey: { playerId: a.player.id, weaponKey: awKey } },
+                update: { kills: { increment: 1 } },
+                create: { playerId: a.player.id, weaponKey: awKey, weaponFamily: awFamily, kills: 1, deaths: 0 },
+              })
+            }
           }
         })
 

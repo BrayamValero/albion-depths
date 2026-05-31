@@ -19,12 +19,13 @@ model Player {
   createdAt  DateTime  @default(now())
   updatedAt  DateTime  @updatedAt
 
-  killerKills  Kill[]       @relation("KillerKills")
-  victimDeaths Kill[]       @relation("VictimDeaths")
-  h2hAsKiller  HeadToHead[] @relation("H2HKiller")
-  h2hAsVictim  HeadToHead[] @relation("H2HVictim")
-
+  killerKills      Kill[]              @relation("KillerKills")
+  victimDeaths     Kill[]              @relation("VictimDeaths")
+  h2hAsKiller      HeadToHead[]        @relation("H2HKiller")
+  h2hAsVictim      HeadToHead[]        @relation("H2HVictim")
   eventParticipants EventParticipant[]
+  weaponStats      WeaponStats[]
+  seasonSnapshots  SeasonSnapshot[]
 
   @@index([mmr])
 }
@@ -38,27 +39,29 @@ model Kill {
   killTime    DateTime
   fame        Int
 
-  rawData          String? @db.LongText // Full API response as JSON string
-  killerWeapon     String? // Extracted weapon type for quick queries
+  killerWeapon     String?
   victimWeapon     String?
   killerGuild      String?
   victimGuild      String?
   killerAlliance   String?
   victimAlliance   String?
-  killerIp         Float?  // Average Item Power
+  killerIp         Float?
   victimIp         Float?
-  totalFame        Int?    // TotalVictimKillFame
+  totalFame        Int?
   killArea         String?
   groupMemberCount Int?
   killerPartyMmr   Int?
   killerPartySize  Int?
+  groupMembers     String? @db.Text
   battleId         String?
   location         String?
+  lootSilverValue  Int?
 
-  killer Player @relation("KillerKills", fields: [killerId], references: [id])
-  victim Player @relation("VictimDeaths", fields: [victimId], references: [id])
-
+  killer      Player            @relation("KillerKills", fields: [killerId], references: [id])
+  victim      Player            @relation("VictimDeaths", fields: [victimId], references: [id])
   participants EventParticipant[]
+  equipment   KillEquipment[]
+  inventory   KillInventory[]
 
   @@index([killerId])
   @@index([victimId])
@@ -86,10 +89,11 @@ model EventParticipant {
   id          Int      @id @default(autoincrement())
   killId      Int
   playerId    String
-  role        String   // "KILLER", "VICTIM", or "ASSISTER"
+  role        String
   mmrChange   Int      @default(0)
   damageDone  Float    @default(0)
   healingDone Float    @default(0)
+  ip          Float?
 
   kill   Kill   @relation(fields: [killId], references: [id])
   player Player @relation(fields: [playerId], references: [id])
@@ -97,6 +101,92 @@ model EventParticipant {
   @@unique([killId, playerId])
   @@index([killId])
   @@index([playerId])
+}
+
+model KillEquipment {
+  id       Int    @id @default(autoincrement())
+  killId   Int
+  owner    String
+  slot     String
+  itemType String
+  quality  Int    @default(1)
+  count    Int    @default(1)
+
+  kill Kill @relation(fields: [killId], references: [id])
+
+  @@index([killId])
+}
+
+model KillInventory {
+  id       Int    @id @default(autoincrement())
+  killId   Int
+  itemType String
+  quality  Int    @default(1)
+  count    Int    @default(1)
+
+  kill Kill @relation(fields: [killId], references: [id])
+
+  @@index([itemType])
+  @@index([killId])
+}
+
+model PriceCache {
+  itemType  String
+  quality   Int
+  price     Int
+  updatedAt DateTime @updatedAt
+
+  @@id([itemType, quality])
+}
+
+model Season {
+  id        Int      @id @default(autoincrement())
+  number    Int      @unique
+  startsAt  DateTime @default(now())
+  endsAt    DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  snapshots SeasonSnapshot[]
+}
+
+model SeasonSnapshot {
+  id           Int      @id @default(autoincrement())
+  seasonId     Int
+  seasonNumber Int
+  playerId     String
+  playerName   String
+  mmr          Int
+  tier         String
+  rank         Int
+  kills        Int
+  deaths       Int
+  assists      Int
+  createdAt    DateTime @default(now())
+
+  player Player @relation(fields: [playerId], references: [id])
+  season Season @relation(fields: [seasonId], references: [id])
+
+  @@unique([seasonId, playerId])
+  @@index([playerId])
+  @@index([seasonId])
+  @@index([seasonNumber])
+}
+
+model WeaponStats {
+  id           Int    @id @default(autoincrement())
+  playerId     String
+  weaponKey    String
+  weaponFamily String
+  kills        Int    @default(0)
+  deaths       Int    @default(0)
+
+  player Player @relation(fields: [playerId], references: [id])
+
+  @@unique([playerId, weaponKey])
+  @@index([weaponFamily, deaths])
+  @@index([weaponFamily, kills])
+  @@index([weaponKey, kills])
 }
 
 model SyncLog {
@@ -109,15 +199,6 @@ model SyncLog {
 
 model SyncState {
   id          Int      @id @default(autoincrement())
-  lastEventId Int     // Highest EventId successfully synced
+  lastEventId Int
   updatedAt   DateTime @updatedAt
-}
-
-model Season {
-  id        Int      @id @default(autoincrement())
-  number    Int      @unique // Season number (1, 2, 3...)
-  startsAt  DateTime @default(now())
-  endsAt    DateTime
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
 }

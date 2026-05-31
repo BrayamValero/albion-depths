@@ -21,11 +21,17 @@ interface SearchBarProps {
 
 export function SearchBar({ onSelect, placeholder = 'Search players...' }: SearchBarProps) {
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedQuery(query), 300)
+    return () => clearTimeout(timer)
+  }, [query])
+
   const { data } = useSWR<{ data: SearchResult[] }>(
-    query.length >= 2 ? `/api/search?q=${encodeURIComponent(query)}` : null,
+    debouncedQuery.length >= 2 ? `/api/search?q=${encodeURIComponent(debouncedQuery)}` : null,
     fetcher
   )
 
@@ -49,7 +55,7 @@ export function SearchBar({ onSelect, placeholder = 'Search players...' }: Searc
   }
 
   return (
-    <div ref={containerRef} className="relative w-full max-w-md">
+    <div ref={containerRef} className="relative w-full">
       <input
         type="text"
         value={query}
